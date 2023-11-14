@@ -1,0 +1,3 @@
+[submodule "raylib-lua"]
+	path = raylib-lua
+	url = https://github.com/TSnake41/raylib-lua
