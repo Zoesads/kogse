@@ -417,7 +417,7 @@ local function Update()
     end
   end
   prev_mouse.x = mouse.x;
-  prev_mouse.y = mouse.y;
+  prev_moues.y = mouse.y;
   if (rl.IsMouseButtonReleased(rl.MOUSE_BUTTON_LEFT)) then
     if (selecting_block.what == "navigating") then
       selecting_block.id = "";
