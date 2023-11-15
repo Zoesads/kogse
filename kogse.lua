@@ -1,3 +1,6 @@
+-- TODO: refactor code later (we really need to refactor the code)
+-- TODO: document code
+
 --[[
   Base-Kogse Module
 ]]
@@ -245,7 +248,7 @@ end
 --// END OF KOGSE MODULE //--
 
 
-Kogse:Init(1000, 600, "very basic window", 240);
+Kogse:Init(1240, 700, "Kogse v0.2a", 240);
 -- Kogse's components
 local camera = Kogse.camera;
 local mouse = Kogse.mouse;
@@ -256,7 +259,14 @@ local window = Kogse.window;
 --[[
   BLOCK MODULE
 ]]
+---@alias PORT_t {connected_to: string, des: string, __parity: boolean}
+---@alias BLOCK_t {x: number, y: number, type: integer, Value: nil | string, I1: nil | PORT_t, I2: nil | PORT_t, I3: nil | PORT_t, O: nil | PORT_t};
+
 local BLOCK = {};
+---@type table<string, BLOCK_t>
+BLOCK.all = {};
+BLOCK.id = BaseKogse:New(12);
+---@type table<string, integer>
 BLOCK.types = {
   ["GET.STR"] = 1;
   ["GET.INT"] = 2;
@@ -265,25 +275,48 @@ BLOCK.types = {
   ["SUB"] = 5;
   ["DIV"] = 6;
   ["DISPLAY"] = 7;
+  ["COLOR"] = 9;
+  ["VECTOR2"] = 10;
+  ["RECTANGLE"] = 11;
 };
+---@type table<number, string[]>
+BLOCK.available_ports = {
+  [BLOCK.types["GET.STR"]] = {"O"};
+  [BLOCK.types["GET.INT"]] = {"O"};
+  [BLOCK.types.ADD] = {"I1", "I2", "O"};
+  [BLOCK.types.SUB] = {"I1", "I2", "O"};
+  [BLOCK.types.MUL] = {"I1", "I2", "O"};
+  [BLOCK.types.DIV] = {"I1", "I2", "O"};
+  [BLOCK.types.DISPLAY] = {"I1", "I2", "I3"};
+  [BLOCK.types.VECTOR2] = {"I1", "I2", "O"};
+  [BLOCK.types.COLOR] = {"I1", "I2", "I3", "O"};
+  [BLOCK.types.RECTANGLE] = {"I1", "I2", "I3"};
+}
 ---@param type integer
 ---@param xpos number
 ---@param ypos number
----@return table
+---@return BLOCK_t
 function BLOCK.NEW_BLOCK(type, xpos, ypos)
   local __block = {
     x = xpos;
     y = ypos;
     type = type;
   };
+  for _, port in ipairs(BLOCK.available_ports[type]) do
+    __block[port] = {
+      connected_to = "";
+      des = "";
+      __parity = true;
+    };
+  end
   return __block;
 end
----@param block table
+---@param block BLOCK_t
 ---@param port_name string
 ---@return Vector2
 function BLOCK.GET_PORT_DISPLAY_POSITION(block, port_name)
   local __res = {x = 0, y = 0};
-  if (block.type == BLOCK.types.ADD or block.type == BLOCK.types.SUB) then
+  if (block.type == BLOCK.types.VECTOR2 or block.type == BLOCK.types.ADD or block.type == BLOCK.types.SUB or block.type == BLOCK.types.DIV or block.type == BLOCK.types.MUL) then
     if (port_name == "I1") then
       __res.x = block.x + 2;
       __res.y = block.y + 25;
@@ -294,12 +327,12 @@ function BLOCK.GET_PORT_DISPLAY_POSITION(block, port_name)
       __res.x = block.x + 88;
       __res.y = block.y + 38;
     end
-  elseif (block.type == BLOCK.types["GET.INT"]) then
+  elseif (block.type == BLOCK.types["GET.INT"] or block.type == BLOCK.types["GET.STR"]) then
     if (port_name == "O") then
       __res.x = block.x + 88;
       __res.y = block.y + 38;
     end
-  elseif (block.type == BLOCK.types.DISPLAY) then
+  elseif (block.type == BLOCK.types.DISPLAY or block.type == BLOCK.types.RECTANGLE) then
     if (port_name == "I1") then
       __res.x = block.x + 2;
       __res.y = block.y + 20;
@@ -310,77 +343,243 @@ function BLOCK.GET_PORT_DISPLAY_POSITION(block, port_name)
       __res.x = block.x + 2;
       __res.y = block.y + 60;
     end
+  elseif (block.type == BLOCK.types.COLOR) then
+    if (port_name == "I1") then
+      __res.x = block.x + 2;
+      __res.y = block.y + 20;
+    elseif (port_name == "I2") then
+      __res.x = block.x + 2;
+      __res.y = block.y + 40;
+    elseif (port_name == "I3") then
+      __res.x = block.x + 2;
+      __res.y = block.y + 60;
+    elseif (port_name == "O") then
+      __res.x = block.x + 88;
+      __res.y = block.y + 38;
+    end
   end
   return __res;
 end
-BLOCK.all = {};
-BLOCK.id = BaseKogse:New(12);
+---@param block_id string
+function BLOCK.DELETE(block_id)
+  local blk = BLOCK.all[block_id];
+  for _, port in ipairs(BLOCK.available_ports[blk.type]) do
+    local target_id = blk[port].connected_to;
+    if (target_id ~= "") then
+      BLOCK.all[target_id][blk[port].des].connected_to = "";
+    end
+  end
+  BLOCK.all[block_id] = nil
+end
+---@param block_type integer
+---@param port_name string
+function BLOCK.IS_VALID_PORT(block_type, port_name)
+  if (not BLOCK.available_ports[block_type]) then
+    return false;
+  end
+  for _, v in ipairs(BLOCK.available_ports[block_type]) do
+    if (v == port_name) then
+      return true;
+    end
+  end
+  return false;
+end
+---@param A_id string
+---@param B_id string
+---@param loc string
+---@param des string
+function BLOCK.CONNECT(A_id, B_id, loc, des)
+  local A = BLOCK.all[A_id];
+  local B = BLOCK.all[B_id];
+  local type_A = A.type;
+  local type_B = B.type;
+  if (not BLOCK.IS_VALID_PORT(type_A, loc) or not BLOCK.IS_VALID_PORT(type_B, des)) then
+    return false;
+  end
+  if (A[loc].connected_to ~= "") then
+    BLOCK.all[A[loc].connected_to][A[loc].des].connected_to = "";
+  end
+  if (B[des].connected_to ~= "") then
+    BLOCK.all[B[des].connected_to][B[des].des].connected_to = "";
+  end
+  BLOCK.all[A_id][loc] = {
+    connected_to = B_id;
+    des = des;
+    __parity = true;
+  };
+  BLOCK.all[B_id][des] = {
+    connected_to = A_id;
+    des = loc;
+    __parity = true;
+  };
+  return true;
+end
 local selecting_block = {what="", id=""};
 local typingBuffer = {
   value = "";
   size = 0;
 };
 --// END OF BLOCK MODULE //
+
 --[[
   KOGSE INTERPRETER
 ]]
 local KogInterpreter = {};
 KogInterpreter.Result = {};
+---@type table<number, fun(id: BLOCK_t): nil | table>
+KogInterpreter.Executor = {
+  [BLOCK.types.ADD] = function(blk)
+    local res = {};
+    for _, port_name in ipairs(BLOCK.available_ports[BLOCK.types.ADD]) do
+      if (not blk[port_name]) then
+        return nil;
+      end
+      if (port_name ~= "O") then
+        local child_res = KogInterpreter.ExecuteBlock(blk[port_name].connected_to);
+        if (type(child_res) ~= "number") then
+          return nil;
+        end
+        table.insert(res, child_res);
+      end
+    end
+    return res[1] + res[2];
+  end;
+  [BLOCK.types.SUB] = function(blk)
+    local res = {};
+    for _, port_name in ipairs(BLOCK.available_ports[BLOCK.types.SUB]) do
+      if (not blk[port_name]) then
+        return nil;
+      end
+      if (port_name ~= "O") then
+        local child_res = KogInterpreter.ExecuteBlock(blk[port_name].connected_to);
+        if (type(child_res) ~= "number") then
+          return nil;
+        end
+        table.insert(res, child_res);
+      end
+    end
+    return res[1] - res[2];
+  end;
+  [BLOCK.types.MUL] = function(blk)
+    local res = {};
+    for _, port_name in ipairs(BLOCK.available_ports[BLOCK.types.MUL]) do
+      if (not blk[port_name]) then
+        return nil;
+      end
+      if (port_name ~= "O") then
+        local child_res = KogInterpreter.ExecuteBlock(blk[port_name].connected_to);
+        if (type(child_res) ~= "number") then
+          return nil;
+        end
+        table.insert(res, child_res);
+      end
+    end
+    return res[2] == 0 and nil or res[1] * res[2];
+  end;
+  [BLOCK.types.DIV] = function(blk)
+    local res = {};
+    for _, port_name in ipairs(BLOCK.available_ports[BLOCK.types.DIV]) do
+      if (not blk[port_name]) then
+        return nil;
+      end
+      if (port_name ~= "O") then
+        local child_res = KogInterpreter.ExecuteBlock(blk[port_name].connected_to);
+        if (type(child_res) ~= "number") then
+          return nil;
+        end
+        table.insert(res, child_res);
+      end
+    end
+    return res[2] == 0 and nil or res[1] / res[2];
+  end;
+  [BLOCK.types.DISPLAY] = function(blk)
+    local res = {};
+    for _, port_name in ipairs(BLOCK.available_ports[BLOCK.types.DISPLAY]) do
+      if (not blk[port_name]) then
+        return nil;
+      end
+      if (port_name ~= "O") then
+        local child_res = KogInterpreter.ExecuteBlock(blk[port_name].connected_to);
+        if ((port_name == "I1" and type(child_res) == "string") or (type(child_res) == "table" and ((port_name == "I2" and #child_res == 2) or (port_name == "I3" and #child_res == 3)))) then
+          table.insert(res, child_res or 0);
+        else
+          return nil;
+        end
+      end
+    end
+    return res;
+  end;
+  [BLOCK.types.RECTANGLE] = function(blk)
+    local res = {};
+    for _, port_name in ipairs(BLOCK.available_ports[BLOCK.types.DISPLAY]) do
+      if (not blk[port_name]) then
+        return nil;
+      end
+      if (port_name ~= "O") then
+        local child_res = KogInterpreter.ExecuteBlock(blk[port_name].connected_to);
+        if (type(child_res) ~= "table") then
+          return nil;
+        end
+        if (((port_name == "I1" or port_name == "I2") and #child_res == 2) or (port_name == "I3" and #child_res == 3)) then
+          table.insert(res, child_res);
+        else
+          return nil;
+        end
+      end
+    end
+    return res;
+  end;
+  [BLOCK.types["GET.INT"]] = function(blk)
+    return tonumber(blk.Value);
+  end;
+  [BLOCK.types["GET.STR"]] = function(blk)
+    return blk.Value;
+  end;
+  [BLOCK.types.COLOR] = function(blk)
+    local res = {};
+    for _, port_name in ipairs(BLOCK.available_ports[BLOCK.types.COLOR]) do
+      if (not blk[port_name]) then
+        return nil;
+      end
+      if (port_name ~= "O") then
+        local child_res = KogInterpreter.ExecuteBlock(blk[port_name].connected_to);
+        if (type(child_res) ~= "number") then
+          return nil;
+        end
+        table.insert(res, child_res);
+      end
+    end
+    return res;
+  end;
+  [BLOCK.types.VECTOR2] = function(blk)
+    local res = {};
+    for _, port_name in ipairs(BLOCK.available_ports[BLOCK.types.VECTOR2]) do
+      if (not blk[port_name]) then
+        return nil;
+      end
+      if (port_name ~= "O") then
+        local child_res = KogInterpreter.ExecuteBlock(blk[port_name].connected_to);
+        if (type(child_res) ~= "number") then
+          return nil;
+        end
+        table.insert(res, child_res);
+      end
+    end
+    return res;
+  end
+};
+---@param id_block string
+---@return table | nil
 function KogInterpreter.ExecuteBlock(id_block)
   local blk = BLOCK.all[id_block];
   if (blk == nil) then
     return nil;
   end
-  if (blk.type == BLOCK.types.ADD) then
-    local block_possible_ports = {"I1", "I2"};
-    local __res = {};
-    for _, port_name in ipairs(block_possible_ports) do
-      if (not blk[port_name]) then
-        return nil;
-      end
-      local __child_res = KogInterpreter.ExecuteBlock(blk[port_name].des_id);
-      if (type(__child_res) ~= "number") then
-        return nil;
-      end
-      table.insert(__res, __child_res);
-    end
-    return __res[1] + __res[2];
-  elseif (blk.type == BLOCK.types.SUB) then
-    local block_possible_ports = {"I1", "I2"};
-    local __res = {};
-    for _, port_name in ipairs(block_possible_ports) do
-      if (not blk[port_name]) then
-        return nil;
-      end
-      local __child_res = KogInterpreter.ExecuteBlock(blk[port_name].des_id);
-      if (type(__child_res) ~= "number") then
-        return nil;
-      end
-      table.insert(__res, __child_res);
-    end
-    return __res[1] - __res[2];
-  elseif (blk.type == BLOCK.types.DISPLAY) then
-    local block_possible_ports = {{"I1", "__to_display"}, {"I2", "__des_x"}, {"I3", "__des_y"}};
-    local __res = {
-      __to_display = 0;
-      __des_x = 0;
-      __des_y = 0;
-    };
-    for _, __ in ipairs(block_possible_ports) do
-      local port_name, des_name = unpack(__);
-      if (not blk[port_name]) then
-        return nil;
-      end
-      local __child_res = KogInterpreter.ExecuteBlock(blk[port_name].des_id);
-      if (type(__child_res) ~= "number") then
-        return nil;
-      end
-      __res[des_name] = __child_res;
-    end
-    return __res;
-  elseif (blk.type == BLOCK.types["GET.INT"]) then
-    return tonumber(blk.Value);
+  local exc = KogInterpreter.Executor[blk.type];
+  if (type(exc) == "function") then
+    return exc(blk);
   end
+  return nil;
 end
 --// END OF KOGSE INTERPRETER //--
 
@@ -397,6 +596,492 @@ local allScenes = {
 };
 local current_scene = allScenes["default"];
 local display_fps = false;
+local function DrawBlocks()
+  -- Draw visual of those blocks
+  local editor = subwin.editor;
+  for id_block, blk in pairs(BLOCK.all) do
+    if (selecting_block.id == id_block) then
+      editor:DrawRectangle(blk.x-2, blk.y-2, 104, 79, Color.RGB(44, 146, 214));
+    end
+    if (blk.type == BLOCK.types.ADD or blk.type == BLOCK.types.SUB or blk.type == BLOCK.types.MUL or blk.type == BLOCK.types.DIV) then
+      editor:DrawRectangle(blk.x, blk.y, 100, 15, Color.RGB(237, 207, 59));
+      editor:DrawRectangle(blk.x, blk.y+15, 100, 60, Color.RGB(15, 15, 15));
+      -- Delete button
+      editor:DrawText("x", blk.x+90, blk.y, 15, rl.RED);
+      -- Input port 1
+      if (editor:AABB_Mouse(blk.x+2, blk.y+25, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+2, blk.y+25, 10, 10,
+            blk.I1.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+2, blk.y+25, 10, 10, blk.I1.connected_to ~= "" and Color.RGB(56, 232, 53) or Color.RGB(255, 255, 255));
+      end
+      editor:DrawText("A", blk.x+15, blk.y+23, 15, rl.WHITE);
+      -- Input port 2
+      if (editor:AABB_Mouse(blk.x+2, blk.y +50, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+2, blk.y+50, 10, 10,
+            blk.I2.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+2, blk.y+50, 10, 10, blk.I2.connected_to ~= "" and rl.GREEN or rl.WHITE);
+      end
+      editor:DrawText("B", blk.x+15, blk.y+48, 15, rl.WHITE);
+      -- Output port
+      if (editor:AABB_Mouse(blk.x+88, blk.y+38, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+88, blk.y+38, 10, 10,
+            blk.O.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+88, blk.y+38, 10, 10, blk.O.connected_to ~= "" and rl.GREEN or rl.WHITE);
+      end
+      editor:DrawText("=", blk.x+75, blk.y+36, 15, rl.WHITE);
+      if (blk.type == BLOCK.types.ADD) then
+        editor:DrawText("A + B", blk.x+5, blk.y+1, 15, rl.BLACK);
+      elseif (blk.type == BLOCK.types.SUB) then
+        editor:DrawText("A - B", blk.x+5, blk.y+1, 15, rl.BLACK);
+      elseif (blk.type == BLOCK.types.MUL) then
+        editor:DrawText("A * B", blk.x+5, blk.y+1, 15, rl.BLACK);
+      elseif (blk.type == BLOCK.types.DIV) then
+        editor:DrawText("A / B", blk.x+5, blk.y+1, 15, rl.BLACK);
+      end
+    elseif (blk.type == BLOCK.types.DISPLAY) then
+      editor:DrawRectangle(blk.x, blk.y, 100, 15, Color.RGB(52, 106, 193));
+      editor:DrawRectangle(blk.x, blk.y+15, 100, 60, Color.RGB(15, 15, 15));
+      -- Delete button
+      editor:DrawText("x", blk.x+90, blk.y, 15, rl.RED);
+      -- Input port 1
+      if (editor:AABB_Mouse(blk.x+2, blk.y+20, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+2, blk.y+20, 10, 10,
+            blk.I1.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+2, blk.y+20, 10, 10, blk.I1.connected_to ~= "" and Color.RGB(56, 232, 53) or Color.RGB(255, 255, 255));
+      end
+      editor:DrawText("CONTENT", blk.x+15, blk.y+22, 12, rl.WHITE);
+      -- Input port 2
+      if (editor:AABB_Mouse(blk.x+2, blk.y +40, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+2, blk.y+40, 10, 10,
+            blk.I2.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+2, blk.y+40, 10, 10, blk.I2.connected_to ~= "" and rl.GREEN or rl.WHITE);
+      end
+      editor:DrawText("Position", blk.x+15, blk.y+42, 12, rl.WHITE);
+      -- Input port 3
+      if (editor:AABB_Mouse(blk.x+2, blk.y +60, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+2, blk.y+60, 10, 10,
+            blk.I3.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+2, blk.y+60, 10, 10, blk.I3.connected_to ~= "" and rl.GREEN or rl.WHITE);
+      end
+      editor:DrawText("Color", blk.x+15, blk.y+62, 12, rl.WHITE);
+      editor:DrawText("DISPLAY", blk.x+5, blk.y+1, 12, rl.BLACK);
+    elseif (blk.type == BLOCK.types.RECTANGLE) then
+      editor:DrawRectangle(blk.x, blk.y, 100, 15, Color.RGB(81, 232, 161));
+      editor:DrawRectangle(blk.x, blk.y+15, 100, 60, Color.RGB(15, 15, 15));
+      -- Delete button
+      editor:DrawText("x", blk.x+90, blk.y, 15, rl.RED);
+      -- Input port 1
+      if (editor:AABB_Mouse(blk.x+2, blk.y+20, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+2, blk.y+20, 10, 10,
+            blk.I1.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+2, blk.y+20, 10, 10, blk.I1.connected_to ~= "" and Color.RGB(56, 232, 53) or Color.RGB(255, 255, 255));
+      end
+      editor:DrawText("SIZE", blk.x+15, blk.y+22, 12, rl.WHITE);
+      -- Input port 2
+      if (editor:AABB_Mouse(blk.x+2, blk.y +40, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+2, blk.y+40, 10, 10,
+            blk.I2.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+2, blk.y+40, 10, 10, blk.I2.connected_to ~= "" and rl.GREEN or rl.WHITE);
+      end
+      editor:DrawText("POSITION", blk.x+15, blk.y+42, 12, rl.WHITE);
+      -- Input port 3
+      if (editor:AABB_Mouse(blk.x+2, blk.y +60, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+2, blk.y+60, 10, 10,
+            blk.I3.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+2, blk.y+60, 10, 10, blk.I3.connected_to ~= "" and rl.GREEN or rl.WHITE);
+      end
+      editor:DrawText("COLOR", blk.x+15, blk.y+62, 12, rl.WHITE);
+      editor:DrawText("RECTANGLE", blk.x+5, blk.y+1, 12, rl.BLACK);
+    elseif (blk.type == BLOCK.types.VECTOR2) then
+      editor:DrawRectangle(blk.x, blk.y, 100, 15, Color.RGB(41, 141, 229));
+      editor:DrawRectangle(blk.x, blk.y+15, 100, 60, Color.RGB(15, 15, 15));
+      -- Delete button
+      editor:DrawText("x", blk.x+90, blk.y, 12, rl.RED);
+      -- Input port 1
+      if (editor:AABB_Mouse(blk.x+2, blk.y+25, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+2, blk.y+25, 10, 10,
+            blk.I1.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+2, blk.y+25, 10, 10, blk.I1.connected_to ~= "" and Color.RGB(56, 232, 53) or Color.RGB(255, 255, 255));
+      end
+      editor:DrawText("X", blk.x+15, blk.y+23, 12, rl.WHITE);
+      -- Input port 2
+      if (editor:AABB_Mouse(blk.x+2, blk.y +50, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+2, blk.y+50, 10, 10,
+            blk.I2.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+2, blk.y+50, 10, 10, blk.I2.connected_to ~= "" and rl.GREEN or rl.WHITE);
+      end
+      editor:DrawText("Y", blk.x+15, blk.y+48, 12, rl.WHITE);
+      -- Output port
+      if (editor:AABB_Mouse(blk.x+88, blk.y+38, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+88, blk.y+38, 10, 10,
+            blk.O.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+88, blk.y+38, 10, 10, blk.O.connected_to ~= "" and rl.GREEN or rl.WHITE);
+      end
+      editor:DrawText("VECTOR2", blk.x+5, blk.y+1, 15, rl.BLACK);
+    elseif (blk.type == BLOCK.types.COLOR) then
+      editor:DrawRectangle(blk.x, blk.y, 100, 15, Color.RGB(174, 140, 219));
+      editor:DrawRectangle(blk.x, blk.y+15, 100, 60, Color.RGB(15, 15, 15));
+      -- Delete button
+      editor:DrawText("x", blk.x+90, blk.y, 15, rl.RED);
+      -- Input port 1
+      if (editor:AABB_Mouse(blk.x+2, blk.y+20, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+2, blk.y+20, 10, 10,
+            blk.I1.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+2, blk.y+20, 10, 10, blk.I1.connected_to ~= "" and Color.RGB(56, 232, 53) or Color.RGB(255, 255, 255));
+      end
+      editor:DrawText("R", blk.x+15, blk.y+22, 12, rl.WHITE);
+      -- Input port 2
+      if (editor:AABB_Mouse(blk.x+2, blk.y +40, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+2, blk.y+40, 10, 10,
+            blk.I2.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+2, blk.y+40, 10, 10, blk.I2.connected_to ~= "" and rl.GREEN or rl.WHITE);
+      end
+      editor:DrawText("G", blk.x+15, blk.y+42, 12, rl.WHITE);
+      -- Input port 3
+      if (editor:AABB_Mouse(blk.x+2, blk.y +60, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+2, blk.y+60, 10, 10,
+            blk.I3.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+2, blk.y+60, 10, 10, blk.I3.connected_to ~= "" and rl.GREEN or rl.WHITE);
+      end
+      editor:DrawText("B", blk.x+15, blk.y+62, 12, rl.WHITE);
+      -- Output port
+      if (editor:AABB_Mouse(blk.x+88, blk.y+38, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+88, blk.y+38, 10, 10,
+            blk.O.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+88, blk.y+38, 10, 10, blk.O.connected_to ~= "" and rl.GREEN or rl.WHITE);
+      end
+      editor:DrawText("COLOR", blk.x+5, blk.y+1, 15, rl.BLACK);
+    elseif (blk.type == BLOCK.types["GET.INT"]) then
+      editor:DrawRectangle(blk.x, blk.y, 100, 15, Color.RGB(252, 162, 45));
+      editor:DrawRectangle(blk.x, blk.y+15, 100, 60, Color.RGB(15, 15, 15));
+      -- Delete button
+      editor:DrawText("x", blk.x+90, blk.y, 15, rl.RED);
+      -- Value
+      if (editor:AABB_Mouse(blk.x+5, blk.y+38, 70, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+5, blk.y+38, 70, 10,
+            Color.Lerp(Color.RGB(26, 29, 30), Color.RGB(35, 38, 40), 0.5));
+      else
+        editor:DrawRectangle(blk.x+5, blk.y+38, 70, 10, Color.RGB(26, 29, 30));
+      end
+      editor:DrawText((selecting_block.what == "typing-number" and selecting_block.id == id_block) and typingBuffer.value or (blk.Value and (#blk.Value > 10 and (blk.Value:sub(1,10) .. "...") or blk.Value) or ""), blk.x + 6,blk.y + 38, 12, Color.RGB(247, 185, 42));
+      -- Output port
+      if (editor:AABB_Mouse(blk.x+88, blk.y+38, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+88, blk.y+38, 10, 10,
+            blk.O.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+88, blk.y+38, 10, 10, blk.O.connected_to ~= "" and rl.GREEN or rl.WHITE);
+      end
+      editor:DrawText("INTEGER", blk.x+5, blk.y+1, 15, rl.BLACK);
+    elseif (blk.type == BLOCK.types["GET.STR"]) then
+      editor:DrawRectangle(blk.x, blk.y, 100, 15, Color.RGB(252, 233, 90));
+      editor:DrawRectangle(blk.x, blk.y+15, 100, 60, Color.RGB(15, 15, 15));
+      -- Delete button
+      editor:DrawText("x", blk.x+90, blk.y, 15, rl.RED);
+      -- Value
+      if (editor:AABB_Mouse(blk.x+5, blk.y+38, 70, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+5, blk.y+38, 70, 10,
+            Color.Lerp(Color.RGB(26, 29, 30), Color.RGB(35, 38, 40), 0.5));
+      else
+        editor:DrawRectangle(blk.x+5, blk.y+38, 70, 10, Color.RGB(26, 29, 30));
+      end
+      editor:DrawText((selecting_block.what == "typing-string" and selecting_block.id == id_block) and typingBuffer.value or (blk.Value and (#blk.Value > 10 and (blk.Value:sub(1,10) .. "...") or blk.Value) or ""), blk.x + 6,blk.y + 38, 12, Color.RGB(247, 185, 42));
+      -- Output port
+      if (editor:AABB_Mouse(blk.x+88, blk.y+38, 10, 10, mouse.x, mouse.y)) then
+        editor:DrawRectangle(blk.x+88, blk.y+38, 10, 10,
+            blk.O.connected_to ~= "" and Color.Lerp(Color.RGB(24, 96, 23),
+            Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
+            0.5));
+      else
+        editor:DrawRectangle(blk.x+88, blk.y+38, 10, 10, blk.O.connected_to ~= "" and rl.GREEN or rl.WHITE);
+      end
+      editor:DrawText("STRING", blk.x+5, blk.y+1, 15, rl.BLACK);
+    end
+  end
+end
+local function BlocksInteraction()
+  local editor = subwin.editor;
+  for id_block, blk in pairs(BLOCK.all) do
+    if (id_block ~= selecting_block.id) then
+      if (rl.IsMouseButtonDown(rl.MOUSE_BUTTON_LEFT) and (selecting_block.id == "" or selecting_block.id == "navigating") and editor:AABB_Mouse(blk.x, blk.y, 100, 15, mouse.x, mouse.y)) then
+        selecting_block.what = "navigating";
+        selecting_block.id = id_block;
+      end
+      if (rl.IsMouseButtonPressed(rl.MOUSE_BUTTON_LEFT)) then
+        if (blk.type == BLOCK.types["GET.INT"]) then
+          if (editor:AABB_Mouse(blk.x+90, blk.y, 15, 15, mouse.x, mouse.y)) then
+            -- Delete the block
+            BLOCK.DELETE(id_block);
+            if (selecting_block.id == id_block) then
+              selecting_block.id = "";
+              selecting_block.what = "";
+            end
+          elseif (editor:AABB_Mouse(blk.x+5, blk.y+38, 70, 10, mouse.x, mouse.y)) then
+            -- Update Block's Value
+            selecting_block.what = "typing-number";
+            selecting_block.id = id_block;
+            typingBuffer.size = 0;
+            typingBuffer.value = "";
+          elseif (editor:AABB_Mouse(blk.x+88, blk.y+38, 10, 10, mouse.x, mouse.y)) then
+          -- Connect to Block's Output port (=)
+            if (selecting_block.what == "") then
+              selecting_block.what = "O";
+              selecting_block.id = id_block;
+            elseif (selecting_block.what:sub(1,1) == "I") then
+              BLOCK.CONNECT(id_block, selecting_block.id, "O", selecting_block.what);
+              selecting_block.what = "";
+              selecting_block.id = "";
+              break;
+            end
+          end
+        elseif (blk.type == BLOCK.types["GET.STR"]) then
+          if (editor:AABB_Mouse(blk.x+90, blk.y, 15, 15, mouse.x, mouse.y)) then
+            -- Delete the block
+            BLOCK.DELETE(id_block);
+            if (selecting_block.id == id_block) then
+              selecting_block.id = "";
+              selecting_block.what = "";
+            end
+          elseif (editor:AABB_Mouse(blk.x+5, blk.y+38, 70, 10, mouse.x, mouse.y)) then
+            -- Update Block's Value
+            selecting_block.what = "typing-string";
+            selecting_block.id = id_block;
+            typingBuffer.size = 0;
+            typingBuffer.value = "";
+          elseif (editor:AABB_Mouse(blk.x+88, blk.y+38, 10, 10, mouse.x, mouse.y)) then
+          -- Connect to Block's Output port (=)
+            if (selecting_block.what == "") then
+              selecting_block.what = "O";
+              selecting_block.id = id_block;
+            elseif (selecting_block.what:sub(1,1) == "I") then
+              BLOCK.CONNECT(id_block, selecting_block.id, "O", selecting_block.what);
+              selecting_block.what = "";
+              selecting_block.id = "";
+              break;
+            end
+          end
+        elseif (blk.type == BLOCK.types.DISPLAY or blk.type == BLOCK.types.RECTANGLE) then
+          if (editor:AABB_Mouse(blk.x+90, blk.y, 15, 15, mouse.x, mouse.y)) then
+            -- Delete the block
+            BLOCK.DELETE(id_block);
+            if (selecting_block.id == id_block) then
+              selecting_block.id = "";
+              selecting_block.what = "";
+              typingBuffer.value = "";
+              typingBuffer.size = 0;
+            end
+          elseif (editor:AABB_Mouse(blk.x+2, blk.y+20, 10, 10, mouse.x, mouse.y)) then
+            -- Connect to Block's Input port 1
+            if (selecting_block.what == "") then
+              selecting_block.what = "I1";
+              selecting_block.id = id_block;
+            elseif (selecting_block.what == "O") then
+              BLOCK.CONNECT(id_block, selecting_block.id, "I1", "O");
+              selecting_block.what = "";
+              selecting_block.id = "";
+              break;
+            end
+          elseif (editor:AABB_Mouse(blk.x+2, blk.y +40, 10, 10, mouse.x, mouse.y)) then
+            -- Connect to Block's Input port 2
+            if (selecting_block.what == "") then
+              selecting_block.what = "I2";
+              selecting_block.id = id_block;
+            elseif (selecting_block.what == "O") then
+              BLOCK.CONNECT(id_block, selecting_block.id, "I2", "O");
+              selecting_block.what = "";
+              selecting_block.id = "";
+              break;
+            end
+          elseif (editor:AABB_Mouse(blk.x+2, blk.y +60, 10, 10, mouse.x, mouse.y)) then
+            -- Connect to Block's Input port 3
+            if (selecting_block.what == "") then
+              selecting_block.what = "I3";
+              selecting_block.id = id_block;
+            elseif (selecting_block.what == "O") then
+              BLOCK.CONNECT(id_block, selecting_block.id, "I3", "O");
+              selecting_block.what = "";
+              selecting_block.id = "";
+              break;
+            end
+          end
+        elseif (blk.type == BLOCK.types.COLOR) then
+          if (editor:AABB_Mouse(blk.x+90, blk.y, 15, 15, mouse.x, mouse.y)) then
+            -- Delete the block
+            BLOCK.DELETE(id_block);
+            if (selecting_block.id == id_block) then
+              selecting_block.id = "";
+              selecting_block.what = "";
+              typingBuffer.value = "";
+              typingBuffer.size = 0;
+            end
+          elseif (editor:AABB_Mouse(blk.x+2, blk.y+20, 10, 10, mouse.x, mouse.y)) then
+            -- Connect to Block's Input port 1
+            if (selecting_block.what == "") then
+              selecting_block.what = "I1";
+              selecting_block.id = id_block;
+            elseif (selecting_block.what == "O") then
+              BLOCK.CONNECT(id_block, selecting_block.id, "I1", "O");
+              selecting_block.what = "";
+              selecting_block.id = "";
+              break;
+            end
+          elseif (editor:AABB_Mouse(blk.x+2, blk.y +40, 10, 10, mouse.x, mouse.y)) then
+            -- Connect to Block's Input port 2
+            if (selecting_block.what == "") then
+              selecting_block.what = "I2";
+              selecting_block.id = id_block;
+            elseif (selecting_block.what == "O") then
+              BLOCK.CONNECT(id_block, selecting_block.id, "I2", "O");
+              selecting_block.what = "";
+              selecting_block.id = "";
+              break;
+            end
+          elseif (editor:AABB_Mouse(blk.x+2, blk.y +60, 10, 10, mouse.x, mouse.y)) then
+            -- Connect to Block's Input port 3
+            if (selecting_block.what == "") then
+              selecting_block.what = "I3";
+              selecting_block.id = id_block;
+            elseif (selecting_block.what == "O") then
+              BLOCK.CONNECT(id_block, selecting_block.id, "I3", "O");
+              selecting_block.what = "";
+              selecting_block.id = "";
+              break;
+            end
+          elseif (editor:AABB_Mouse(blk.x+88, blk.y+38, 10, 10, mouse.x, mouse.y)) then
+            -- Connect to Block's Output port
+            if (selecting_block.what == "") then
+              selecting_block.what = "O";
+              selecting_block.id = id_block;
+            elseif (selecting_block.what:sub(1,1) == "I") then
+              BLOCK.CONNECT(id_block, selecting_block.id, "O", selecting_block.what);
+              selecting_block.what = "";
+              selecting_block.id = "";
+              break;
+            end
+          end
+        elseif (blk.type == BLOCK.types.ADD or blk.type == BLOCK.types.SUB or blk.type == BLOCK.types.DIV or blk.type == BLOCK.types.MUL or blk.type == BLOCK.types.VECTOR2) then
+          if (editor:AABB_Mouse(blk.x+90, blk.y, 15, 15, mouse.x, mouse.y)) then
+            -- Delete the block
+            BLOCK.DELETE(id_block);
+            if (selecting_block.id == id_block) then
+              selecting_block.id = "";
+              selecting_block.what = "";
+              typingBuffer.value = "";
+              typingBuffer.size = 0;
+            end
+          elseif (editor:AABB_Mouse(blk.x+2, blk.y+25, 10, 10, mouse.x, mouse.y)) then
+            -- Connect to Block's Input port 1
+            if (selecting_block.what == "") then
+              selecting_block.what = "I1";
+              selecting_block.id = id_block;
+            elseif (selecting_block.what == "O") then
+              BLOCK.CONNECT(id_block, selecting_block.id, "I1", "O");
+              selecting_block.what = "";
+              selecting_block.id = "";
+              break;
+            end
+          elseif (editor:AABB_Mouse(blk.x+2, blk.y +50, 10, 10, mouse.x, mouse.y)) then
+            -- Connect to Block's Input port 2
+            if (selecting_block.what == "") then
+              selecting_block.what = "I2";
+              selecting_block.id = id_block;
+            elseif (selecting_block.what == "O") then
+              BLOCK.CONNECT(id_block, selecting_block.id, "I2", "O");
+              selecting_block.what = "";
+              selecting_block.id = "";
+              break;
+            end
+          elseif (editor:AABB_Mouse(blk.x+88, blk.y+38, 10, 10, mouse.x, mouse.y)) then
+            -- Connect to Block's Output port
+            if (selecting_block.what == "") then
+              selecting_block.what = "O";
+              selecting_block.id = id_block;
+            elseif (selecting_block.what:sub(1,1) == "I") then
+              BLOCK.CONNECT(id_block, selecting_block.id, "O", selecting_block.what);
+              selecting_block.what = "";
+              selecting_block.id = "";
+              break;
+            end
+          end
+        end
+      end
+    end
+  end
+end
+local function VisualiseBlocksConnection()
+  for id_block, blk in pairs(BLOCK.all) do
+    for _, port_name in ipairs(BLOCK.available_ports[blk.type]) do
+      local connection = blk[port_name];
+      if (connection.connected_to ~= "") then
+        if (BLOCK.all[connection.connected_to][connection.des].__parity ~= blk[port_name].__parity) then
+          BLOCK.all[connection.connected_to][connection.des].__parity = true;
+          blk[port_name].__parity = true;
+        else
+          blk[port_name].__parity = false;
+          subwin.editor:DrawBezierCurve(BLOCK.GET_PORT_DISPLAY_POSITION(blk, port_name), BLOCK.GET_PORT_DISPLAY_POSITION(BLOCK.all[connection.connected_to], connection.des), 2, rl.GREEN);
+        end
+      end
+    end
+  end
+end
+---@param type integer
+local function SpawnNewBlock(type)
+  local spawn_pos_x = -subwin.editor.x-50;
+  local spawn_pos_y = -subwin.editor.y-35;
+  local spawn_id = BLOCK.id:ConvertToString();
+  BLOCK.all[spawn_id] = BLOCK.NEW_BLOCK(type, spawn_pos_x, spawn_pos_y);
+  BLOCK.id:Update();
+  return spawn_id;
+end
 local function Update()
   rl.BeginDrawing();
   rl.ClearBackground(rl.BLACK);
@@ -406,7 +1091,7 @@ local function Update()
     if (sw_view:AABB(sw_view.absolute_position.x, sw_view.absolute_position.y, sw_view.w, sw_view.h, mouse.x, mouse.y, 10, 10)) then
       -- print("hi mom", sw_name);
       if ((current_scene == allScenes["default"] and sw_name == "editor") or (current_scene == allScenes["running"] and sw_name == "runner")) then
-        sw_view.zoom = math.max(0.01, math.min(sw_view.zoom + mouse_scroll_dt*0.5, 3));
+        sw_view.zoom = math.max(0.01, math.min(sw_view.zoom + mouse_scroll_dt*0.05, 2));
         -- print(selecting_block.what, "hi");
         if (selecting_block.what ~= "navigating" and rl.IsMouseButtonDown(rl.MOUSE_BUTTON_LEFT)) then
           sw_view.x = sw_view.x + 0.5*mouse_dt.x*(1/sw_view.zoom);
@@ -430,8 +1115,8 @@ local function Update()
     local navigate_block = BLOCK.all[selecting_block.id];
     local __dt_x = (subwin.editor:TranslateFromViewportXToAbsoluteX(navigate_block.x)-mouse.x)*(1/subwin.editor.zoom);
     local __dt_y = (subwin.editor:TranslateFromViewportYToAbsoluteY(navigate_block.y)-mouse.y)*(1/subwin.editor.zoom);
-    for ___, ____ in pairs(BLOCK.all) do
-      if (___ ~= selecting_block.id and subwin.editor:AABB(____.x, ____.y, 100, 75, navigate_block.x-__dt_x-50, navigate_block.y-__dt_y-5, 100, 75)) then
+    for _, blk in pairs(BLOCK.all) do
+      if (_ ~= selecting_block.id and subwin.editor:AABB(blk.x, blk.y, 100, 75, navigate_block.x-__dt_x-50, navigate_block.y-__dt_y-5, 100, 75)) then
         collided = true;
         break;
       end
@@ -475,12 +1160,11 @@ local function Update()
     };
     for _, kn in ipairs(key_and_num) do
       if (rl.IsKeyPressed(kn[1])) then
-        typingBuffer.value = typingBuffer.value .. kn[2];
-        typingBuffer.size = typingBuffer.size + 1;
+        typingBuffer.value = typingBuffer.value:sub(1, 29) .. kn[2];
       end
     end
+    typingBuffer.size = #typingBuffer.value;
     if (rl.IsKeyPressed(rl.KEY_BACKSPACE) and typingBuffer.size > 0) then
-      typingBuffer.size = typingBuffer.size - 1;
       typingBuffer.value = typingBuffer.size == 0 and "" or typingBuffer.value:sub(1, typingBuffer.size-1);
     end
     if (rl.IsKeyPressed(rl.KEY_ENTER)) then
@@ -492,22 +1176,72 @@ local function Update()
       typingBuffer.value = "";
     end
     -- print(typingBuffer.value, typingBuffer.size);
+  elseif (selecting_block.what == "typing-string") then
+    local translate_keys = {
+      {rl.KEY_ONE, "1"},
+      {rl.KEY_TWO, "2"},
+      {rl.KEY_THREE, "3"},
+      {rl.KEY_FOUR, "4"},
+      {rl.KEY_FIVE, "5"},
+      {rl.KEY_SIX, "6"},
+      {rl.KEY_SEVEN, "7"},
+      {rl.KEY_EIGHT, "8"},
+      {rl.KEY_NINE, "9"},
+      {rl.KEY_ZERO, "0"},
+      {rl.KEY_MINUS, "-"},
+      {rl.KEY_SPACE, " "};
+      {rl.KEY_COMMA, ","};
+      {rl.KEY_SEMICOLON, ";"};
+    };
+    for _, kn in ipairs(translate_keys) do
+      if (rl.IsKeyPressed(kn[1])) then
+        typingBuffer.value = typingBuffer.value:sub(1,1023) .. kn[2];
+      end
+    end
+    typingBuffer.size = #typingBuffer.value;
+    local chars = "ABCDEFGHIJKLMNOPQRSTVUWXYZ";
+    local caps_down = rl.IsKeyDown(rl.KEY_CAPS_LOCK) and 1 or 0;
+    local shift_down = (rl.IsKeyDown(rl.KEY_LEFT_SHIFT) or rl.IsKeyDown(rl.KEY_RIGHT_SHIFT)) and 1 or 0;
+    local use_cap = bit.bxor(caps_down, shift_down) == 1;
+    for i = 1, #chars do
+      if (type(rl["KEY_" .. chars:sub(i,i)]) == "number" and rl.IsKeyPressed(rl["KEY_"..chars:sub(i,i)])) then
+        typingBuffer.value = typingBuffer.value:sub(1,1023) .. (use_cap and chars:sub(i,i) or string.lower(chars:sub(i,i)));
+      end
+    end
+    typingBuffer.size = #typingBuffer.value;
+    if (rl.IsKeyPressed(rl.KEY_BACKSPACE) and typingBuffer.size > 0) then
+      typingBuffer.value = typingBuffer.size == 0 and "" or typingBuffer.value:sub(1, typingBuffer.size-1);
+    end
+    if (rl.IsKeyPressed(rl.KEY_ENTER)) then
+      selecting_block.what = "";
+      BLOCK.all[selecting_block.id].Value = typingBuffer.value;
+      selecting_block.id = "";
+      typingBuffer.size = 0;
+      typingBuffer.value = "";
+    end
   elseif (current_scene == allScenes.default and selecting_block.what == "" or selecting_block.what == "navigating") then
-    local spawn_pos_x = -subwin.editor.x-50;
-    local spawn_pos_y = -subwin.editor.y-35;
-    local spawn_id = BLOCK.id:ConvertToString();
     if (rl.IsKeyPressed(rl.KEY_ONE)) then
-      BLOCK.all[spawn_id] = BLOCK.NEW_BLOCK(BLOCK.types.DISPLAY, spawn_pos_x, spawn_pos_y);
-      BLOCK.id:Update();
+      SpawnNewBlock(BLOCK.types.DISPLAY);
     elseif (rl.IsKeyPressed(rl.KEY_TWO)) then
-      BLOCK.all[spawn_id] = BLOCK.NEW_BLOCK(BLOCK.types.ADD, spawn_pos_x, spawn_pos_y);
-      BLOCK.id:Update();
+      SpawnNewBlock(BLOCK.types.ADD)
     elseif (rl.IsKeyPressed(rl.KEY_THREE)) then
-      BLOCK.all[spawn_id] = BLOCK.NEW_BLOCK(BLOCK.types.SUB, spawn_pos_x, spawn_pos_y);
-      BLOCK.id:Update();
+      SpawnNewBlock(BLOCK.types.SUB)
     elseif (rl.IsKeyPressed(rl.KEY_FOUR)) then
-      BLOCK.all[spawn_id] = BLOCK.NEW_BLOCK(BLOCK.types["GET.INT"], spawn_pos_x, spawn_pos_y);
-      BLOCK.id:Update();
+      local block_id = SpawnNewBlock(BLOCK.types["GET.INT"])
+      BLOCK.all[block_id].Value = "0";
+    elseif (rl.IsKeyPressed(rl.KEY_FIVE)) then
+      SpawnNewBlock(BLOCK.types.DIV);
+    elseif (rl.IsKeyPressed(rl.KEY_SIX)) then
+      SpawnNewBlock(BLOCK.types.MUL);
+    elseif (rl.IsKeyPressed(rl.KEY_SEVEN)) then
+      SpawnNewBlock(BLOCK.types.COLOR);
+    elseif (rl.IsKeyPressed(rl.KEY_EIGHT)) then
+      SpawnNewBlock(BLOCK.types.VECTOR2);
+    elseif (rl.IsKeyPressed(rl.KEY_NINE)) then
+      SpawnNewBlock(BLOCK.types.RECTANGLE);
+    elseif (rl.IsKeyPressed(rl.KEY_ZERO)) then
+      local block_id = SpawnNewBlock(BLOCK.types["GET.STR"])
+      BLOCK.all[block_id].Value = "Hi kogse!";
     end
   end
 
@@ -519,391 +1253,23 @@ local function Update()
       if (sw_name == "editor") then
         -- Draw editor's background
         Kogse:DrawRectangleNoRelative(sw_view.absolute_position.x, sw_view.absolute_position.y, sw_view.w, sw_view.h, Color.RGB(20, 21, 22));
-        --- Fun part, draw blocks (no it is not)
-        --- Handle clicking stuff
-        for id_block, blk in pairs(BLOCK.all) do
-          if (id_block ~= selecting_block.id) then
-            if (rl.IsMouseButtonDown(rl.MOUSE_BUTTON_LEFT) and (selecting_block.id == "" or selecting_block.id == "navigating") and sw_view:AABB_Mouse(blk.x, blk.y, 100, 15, mouse.x, mouse.y)) then
-              selecting_block.what = "navigating";
-              selecting_block.id = id_block;
-            end
-            if (rl.IsMouseButtonPressed(rl.MOUSE_BUTTON_LEFT)) then
-              if (blk.type == BLOCK.types["GET.INT"]) then
-                if (sw_view:AABB_Mouse(blk.x+90, blk.y, 15, 15, mouse.x, mouse.y)) then
-                  -- Delete the block
-                  local block_possible_ports = {"I1", "I2", "O"};
-                  for _, port_name in ipairs(block_possible_ports) do
-                    if (blk[port_name]) then
-                      BLOCK.all[blk[port_name].des_id][blk[port_name].des_port_name] = nil;
-                    end
-                  end
-                  BLOCK.all[id_block] = nil;
-                  if (selecting_block.id == id_block) then
-                    selecting_block.id = "";
-                    selecting_block.what = "";
-                  end
-                elseif (sw_view:AABB_Mouse(blk.x+5, blk.y+38, 70, 10, mouse.x, mouse.y)) then
-                  -- Update Block's Value
-                  selecting_block.what = "typing-number";
-                  selecting_block.id = id_block;
-                  typingBuffer.size = 0;
-                  typingBuffer.value = "";
-                elseif (sw_view:AABB_Mouse(blk.x+88, blk.y+38, 10, 10, mouse.x, mouse.y)) then
-                -- Connect to Block's Output port (=)
-                  if (selecting_block.what == "") then
-                    selecting_block.what = "O";
-                    selecting_block.id = id_block;
-                  elseif (selecting_block.what:sub(1,1) == "I") then
-                   local from_port = BLOCK.all[selecting_block.id][selecting_block.what];
-                    if (from_port ~= nil) then
-                      BLOCK.all[from_port.des_id][from_port.des_port_name] = nil;
-                    end
-                    if (blk.O ~= nil) then
-                      BLOCK.all[blk.O.des_id][blk.O.des_port_name] = nil;
-                    end
-                    BLOCK.all[selecting_block.id][selecting_block.what] = {
-                      des_id = id_block;
-                      des_port_name = "O";
-                      __parity = true;
-                    };
-                    blk.O = {
-                      des_id = selecting_block.id;
-                      des_port_name = selecting_block.what;
-                      __parity = true;
-                    };
-                    selecting_block.what = "";
-                    selecting_block.id = "";
-                    break;
-                  end
-                end
-              elseif (blk.type == BLOCK.types.DISPLAY) then
-                if (sw_view:AABB_Mouse(blk.x+90, blk.y, 15, 15, mouse.x, mouse.y)) then
-                  -- Delete the block
-                  local block_possible_ports = {"I1", "I2", "I3"};
-                  for _, port_name in ipairs(block_possible_ports) do
-                    if (blk[port_name]) then
-                      BLOCK.all[blk[port_name].des_id][blk[port_name].des_port_name] = nil;
-                    end
-                  end
-                  BLOCK.all[id_block] = nil;
-                  if (selecting_block.id == id_block) then
-                    selecting_block.id = "";
-                    selecting_block.what = "";
-                    typingBuffer.value = "";
-                    typingBuffer.size = 0;
-                  end
-                elseif (sw_view:AABB_Mouse(blk.x+2, blk.y+20, 10, 10, mouse.x, mouse.y)) then
-                  -- Connect to Block's Input port 1 (Value)
-                  if (selecting_block.what == "") then
-                    selecting_block.what = "I1";
-                    selecting_block.id = id_block;
-                  elseif (selecting_block.what == "O") then
-                    local from_port = BLOCK.all[selecting_block.id]["O"];
-                    if (from_port ~= nil) then
-                      BLOCK.all[from_port.des_id][from_port.des_port_name] = nil;
-                    end
-                    if (blk.I1 ~= nil) then
-                      BLOCK.all[blk.I1.des_id][blk.I1.des_port_name] = nil;
-                    end
-                    BLOCK.all[selecting_block.id]["O"] = {
-                      des_id = id_block;
-                      des_port_name = "I1";
-                      __parity = true;
-                    };
-                    blk.I1 = {
-                      des_id = selecting_block.id;
-                      des_port_name = "O";
-                      __parity = true;
-                    };
-                    selecting_block.what = "";
-                    selecting_block.id = "";
-                    break;
-                  end
-                elseif (sw_view:AABB_Mouse(blk.x+2, blk.y +40, 10, 10, mouse.x, mouse.y)) then
-                  -- Connect to Block's Input port 2 (X)
-                  if (selecting_block.what == "") then
-                    selecting_block.what = "I2";
-                    selecting_block.id = id_block;
-                  elseif (selecting_block.what == "O") then
-                    local from_port = BLOCK.all[selecting_block.id]["O"];
-                    if (from_port ~= nil) then
-                      BLOCK.all[from_port.des_id][from_port.des_port_name] = nil;
-                    end
-                    if (blk.I2 ~= nil) then
-                      BLOCK.all[blk.I2.des_id][blk.I2.des_port_name] = nil;
-                    end
-                    BLOCK.all[selecting_block.id]["O"] = {
-                      des_id = id_block;
-                      des_port_name = "I2";
-                      __parity = true;
-                    }
-                    blk.I2 = {
-                      des_id = selecting_block.id;
-                      des_port_name = "O";
-                      __parity = true;
-                    };
-                    selecting_block.what = "";
-                    selecting_block.id = "";
-                    break;
-                  end
-                elseif (sw_view:AABB_Mouse(blk.x+2, blk.y +60, 10, 10, mouse.x, mouse.y)) then
-                  -- Connect to Block's Input port 3 (Y)
-                  if (selecting_block.what == "") then
-                    selecting_block.what = "I3";
-                    selecting_block.id = id_block;
-                  elseif (selecting_block.what == "O") then
-                    local from_port = BLOCK.all[selecting_block.id]["O"];
-                    if (from_port ~= nil) then
-                      BLOCK.all[from_port.des_id][from_port.des_port_name] = nil;
-                    end
-                    if (blk.I3 ~= nil) then
-                      BLOCK.all[blk.I3.des_id][blk.I3.des_port_name] = nil;
-                    end
-                    BLOCK.all[selecting_block.id]["O"] = {
-                      des_id = id_block;
-                      des_port_name = "I3";
-                      __parity = true;
-                    }
-                    blk.I3 = {
-                      des_id = selecting_block.id;
-                      des_port_name = "O";
-                      __parity = true;
-                    };
-                    selecting_block.what = "";
-                    selecting_block.id = "";
-                    break;
-                  end
-                end
-              elseif (blk.type == BLOCK.types.ADD or blk.type == BLOCK.types.SUB) then
-                if (sw_view:AABB_Mouse(blk.x+90, blk.y, 15, 15, mouse.x, mouse.y)) then
-                  -- Delete the block
-                  local block_possible_ports = {"I1", "I2", "O"};
-                  for _, port_name in ipairs(block_possible_ports) do
-                    if (blk[port_name]) then
-                      BLOCK.all[blk[port_name].des_id][blk[port_name].des_port_name] = nil;
-                    end
-                  end
-                  BLOCK.all[id_block] = nil;
-                  if (selecting_block.id == id_block) then
-                    selecting_block.id = "";
-                    selecting_block.what = "";
-                    typingBuffer.value = "";
-                    typingBuffer.size = 0;
-                  end
-                elseif (sw_view:AABB_Mouse(blk.x+2, blk.y+25, 10, 10, mouse.x, mouse.y)) then
-                  -- Connect to Block's Input port 1 (A)
-                  if (selecting_block.what == "") then
-                    selecting_block.what = "I1";
-                    selecting_block.id = id_block;
-                  elseif (selecting_block.what == "O") then
-                    local from_port = BLOCK.all[selecting_block.id]["O"];
-                    if (from_port ~= nil) then
-                      BLOCK.all[from_port.des_id][from_port.des_port_name] = nil;
-                    end
-                    if (blk.I1 ~= nil) then
-                      BLOCK.all[blk.I1.des_id][blk.I1.des_port_name] = nil;
-                    end
-                    BLOCK.all[selecting_block.id]["O"] = {
-                      des_id = id_block;
-                      des_port_name = "I1";
-                      __parity = true;
-                    };
-                    blk.I1 = {
-                      des_id = selecting_block.id;
-                      des_port_name = "O";
-                      __parity = true;
-                    };
-                    selecting_block.what = "";
-                    selecting_block.id = "";
-                    break;
-                  end
-                elseif (sw_view:AABB_Mouse(blk.x+2, blk.y +50, 10, 10, mouse.x, mouse.y)) then
-                  -- Connect to Block's Input port 2 (B)
-                  if (selecting_block.what == "") then
-                    selecting_block.what = "I2";
-                    selecting_block.id = id_block;
-                  elseif (selecting_block.what == "O") then
-                    local from_port = BLOCK.all[selecting_block.id]["O"];
-                    if (from_port ~= nil) then
-                      BLOCK.all[from_port.des_id][from_port.des_port_name] = nil;
-                    end
-                    if (blk.I2 ~= nil) then
-                      BLOCK.all[blk.I2.des_id][blk.I2.des_port_name] = nil;
-                    end
-                    BLOCK.all[selecting_block.id]["O"] = {
-                      des_id = id_block;
-                      des_port_name = "I2";
-                      __parity = true;
-                    }
-                    blk.I2 = {
-                      des_id = selecting_block.id;
-                      des_port_name = "O";
-                      __parity = true;
-                    };
-                    selecting_block.what = "";
-                    selecting_block.id = "";
-                    break;
-                  end
-                elseif (sw_view:AABB_Mouse(blk.x+88, blk.y+38, 10, 10, mouse.x, mouse.y)) then
-                  -- Connect to Block's Output port (=)
-                  if (selecting_block.what == "") then
-                    selecting_block.what = "O";
-                    selecting_block.id = id_block;
-                  elseif (selecting_block.what:sub(1,1) == "I") then
-                   local from_port = BLOCK.all[selecting_block.id][selecting_block.what];
-                    if (from_port ~= nil) then
-                      BLOCK.all[from_port.des_id][from_port.des_port_name] = nil;
-                    end
-                    if (blk.O ~= nil) then
-                      BLOCK.all[blk.O.des_id][blk.O.des_port_name] = nil;
-                    end
-                    BLOCK.all[selecting_block.id][selecting_block.what] = {
-                      des_id = id_block;
-                      des_port_name = "O";
-                      __parity = true;
-                    };
-                    blk.O = {
-                      des_id = selecting_block.id;
-                      des_port_name = selecting_block.what;
-                      __parity = true;
-                    };
-                    selecting_block.what = "";
-                    selecting_block.id = "";
-                    break;
-                  end
-                end
-              end
-            end
-          end
-        end
-        --- Draw visual of those blocks
-        for id_block, blk in pairs(BLOCK.all) do
-          if (selecting_block.id == id_block) then
-            sw_view:DrawRectangle(blk.x-2, blk.y-2, 104, 79, Color.RGB(44, 146, 214));
-          end
-          if (blk.type == BLOCK.types.ADD or blk.type == BLOCK.types.SUB) then
-            sw_view:DrawRectangle(blk.x, blk.y, 100, 15, Color.RGB(237, 207, 59));
-            sw_view:DrawRectangle(blk.x, blk.y+15, 100, 60, Color.RGB(15, 15, 15));
-            --- Delete button
-            sw_view:DrawText("x", blk.x+90, blk.y, 15, rl.RED);
-            --- Input port 1
-            if (sw_view:AABB_Mouse(blk.x+2, blk.y+25, 10, 10, mouse.x, mouse.y)) then
-              sw_view:DrawRectangle(blk.x+2, blk.y+25, 10, 10,
-                  blk.I1 and Color.Lerp(Color.RGB(24, 96, 23),
-                  Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
-                  0.5));
-            else
-              sw_view:DrawRectangle(blk.x+2, blk.y+25, 10, 10, blk.I1 and Color.RGB(56, 232, 53) or Color.RGB(255, 255, 255));
-            end
-            sw_view:DrawText("A", blk.x+15, blk.y+23, 15, rl.WHITE);
-            --- Input port 2
-            if (sw_view:AABB_Mouse(blk.x+2, blk.y +50, 10, 10, mouse.x, mouse.y)) then
-              sw_view:DrawRectangle(blk.x+2, blk.y+50, 10, 10,
-                  blk.I2 and Color.Lerp(Color.RGB(24, 96, 23),
-                  Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
-                  0.5));
-            else
-              sw_view:DrawRectangle(blk.x+2, blk.y+50, 10, 10, blk.I2 and rl.GREEN or rl.WHITE);
-            end
-            sw_view:DrawText("B", blk.x+15, blk.y+48, 15, rl.WHITE);
-            --- Output port
-            if (sw_view:AABB_Mouse(blk.x+88, blk.y+38, 10, 10, mouse.x, mouse.y)) then
-              sw_view:DrawRectangle(blk.x+88, blk.y+38, 10, 10,
-                  blk.O and Color.Lerp(Color.RGB(24, 96, 23),
-                  Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
-                  0.5));
-            else
-              sw_view:DrawRectangle(blk.x+88, blk.y+38, 10, 10, blk.O and rl.GREEN or rl.WHITE);
-            end
-            sw_view:DrawText("=", blk.x+75, blk.y+36, 15, rl.WHITE);
-            sw_view:DrawText("A "..(blk.type==BLOCK.types.ADD and "+" or "-").." B", blk.x+5, blk.y+1, 15, rl.BLACK);
-          elseif (blk.type == BLOCK.types.DISPLAY) then
-            sw_view:DrawRectangle(blk.x, blk.y, 100, 15, Color.RGB(52, 106, 193));
-            sw_view:DrawRectangle(blk.x, blk.y+15, 100, 60, Color.RGB(15, 15, 15));
-            --- Delete button
-            sw_view:DrawText("x", blk.x+90, blk.y, 15, rl.RED);
-            --- Input port 1
-            if (sw_view:AABB_Mouse(blk.x+2, blk.y+20, 10, 10, mouse.x, mouse.y)) then
-              sw_view:DrawRectangle(blk.x+2, blk.y+20, 10, 10,
-                  blk.I1 and Color.Lerp(Color.RGB(24, 96, 23),
-                  Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
-                  0.5));
-            else
-              sw_view:DrawRectangle(blk.x+2, blk.y+20, 10, 10, blk.I1 and Color.RGB(56, 232, 53) or Color.RGB(255, 255, 255));
-            end
-            sw_view:DrawText("Value", blk.x+15, blk.y+22, 15, rl.WHITE);
-            --- Input port 2
-            if (sw_view:AABB_Mouse(blk.x+2, blk.y +40, 10, 10, mouse.x, mouse.y)) then
-              sw_view:DrawRectangle(blk.x+2, blk.y+40, 10, 10,
-                  blk.I2 and Color.Lerp(Color.RGB(24, 96, 23),
-                  Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
-                  0.5));
-            else
-              sw_view:DrawRectangle(blk.x+2, blk.y+40, 10, 10, blk.I2 and rl.GREEN or rl.WHITE);
-            end
-            sw_view:DrawText("X", blk.x+15, blk.y+42, 15, rl.WHITE);
-            --- Input port 3
-            if (sw_view:AABB_Mouse(blk.x+2, blk.y +60, 10, 10, mouse.x, mouse.y)) then
-              sw_view:DrawRectangle(blk.x+2, blk.y+60, 10, 10,
-                  blk.I3 and Color.Lerp(Color.RGB(24, 96, 23),
-                  Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
-                  0.5));
-            else
-              sw_view:DrawRectangle(blk.x+2, blk.y+60, 10, 10, blk.I3 and rl.GREEN or rl.WHITE);
-            end
-            sw_view:DrawText("Y", blk.x+15, blk.y+62, 15, rl.WHITE);
-            sw_view:DrawText("DISPLAY", blk.x+5, blk.y+1, 15, rl.BLACK);
-          elseif (blk.type == BLOCK.types["GET.INT"]) then
-            sw_view:DrawRectangle(blk.x, blk.y, 100, 15, Color.RGB(252, 162, 45));
-            sw_view:DrawRectangle(blk.x, blk.y+15, 100, 60, Color.RGB(15, 15, 15));
-            --- Delete button
-            sw_view:DrawText("x", blk.x+90, blk.y, 15, rl.RED);
-            --- Value
-            if (sw_view:AABB_Mouse(blk.x+5, blk.y+38, 70, 10, mouse.x, mouse.y)) then
-              sw_view:DrawRectangle(blk.x+5, blk.y+38, 70, 10,
-                  Color.Lerp(Color.RGB(26, 29, 30), Color.RGB(35, 38, 40), 0.5));
-            else
-              sw_view:DrawRectangle(blk.x+5, blk.y+38, 70, 10, blk.I1 and Color.RGB(26, 29, 30) or Color.RGB(35, 38, 40));
-            end
-            sw_view:DrawText((selecting_block.what == "typing-number" and selecting_block.id == id_block) and typingBuffer.value or (blk.Value and (#blk.Value > 10 and (blk.Value:sub(1,10) .. "...") or blk.Value) or ""), blk.x + 6,blk.y + 38, 12, Color.RGB(247, 185, 42));
-            --- Output port
-            if (sw_view:AABB_Mouse(blk.x+88, blk.y+38, 10, 10, mouse.x, mouse.y)) then
-              sw_view:DrawRectangle(blk.x+88, blk.y+38, 10, 10,
-                  blk.O and Color.Lerp(Color.RGB(24, 96, 23),
-                  Color.RGB(56, 232, 53), 0.5) or Color.Lerp(Color.RGB(180, 180, 180), Color.RGB(255, 255, 255),
-                  0.5));
-            else
-              sw_view:DrawRectangle(blk.x+88, blk.y+38, 10, 10, blk.O and rl.GREEN or rl.WHITE);
-            end
-            sw_view:DrawText("INTEGER", blk.x+5, blk.y+1, 15, rl.BLACK);
-          end
-        end
-        ---- Draw connection lines for those blocks
-        for id_block, blk in pairs(BLOCK.all) do
-          local block_possible_ports = {"I1", "I2", "I3", "O"};
-          for _, port_name in ipairs(block_possible_ports) do
-            if (blk[port_name]) then
-              local target_block_info = blk[port_name];
-              local tpid = target_block_info.des_id;
-              local tpn = target_block_info.des_port_name;
-              if (BLOCK.all[tpid][tpn].__parity == blk.__parity) then
-                BLOCK.all[tpid][tpn].__parity = true;
-                blk[port_name].__parity = true;
-              else
-                blk[port_name].__parity = false;
-                sw_view:DrawBezierCurve(BLOCK.GET_PORT_DISPLAY_POSITION(blk, port_name), BLOCK.GET_PORT_DISPLAY_POSITION(BLOCK.all[tpid], tpn), 2, rl.GREEN);
-              end
-            end
-          end
-        end
+        BlocksInteraction();
+        DrawBlocks();
+        VisualiseBlocksConnection();
         -- Draw spawning help
         Kogse:DrawTextNoRelative("1 - Spawn DISPLAY block", sw_view.absolute_position.x+5, sw_view.absolute_position.y+5, 14, Color.RGB(52, 106, 193));
         Kogse:DrawTextNoRelative("2 - Spawn ADD block", sw_view.absolute_position.x+5, sw_view.absolute_position.y+25, 14, Color.RGB(237, 207, 59));
         Kogse:DrawTextNoRelative("3 - Spawn SUB block", sw_view.absolute_position.x+5, sw_view.absolute_position.y+45, 14, Color.RGB(237, 207, 59));
         Kogse:DrawTextNoRelative("4 - Spawn INTEGER block", sw_view.absolute_position.x+5, sw_view.absolute_position.y+65, 14, Color.RGB(252, 162, 45));
-        Kogse:DrawTextNoRelative("Q - Deselect block", sw_view.absolute_position.x+5, sw_view.absolute_position.y+85, 14, rl.WHITE);
+        Kogse:DrawTextNoRelative("5 - Spawn DIV block", sw_view.absolute_position.x+5, sw_view.absolute_position.y+85, 14, Color.RGB(237, 207, 59));
+        Kogse:DrawTextNoRelative("6 - Spawn MUL block", sw_view.absolute_position.x+5, sw_view.absolute_position.y+105, 14, Color.RGB(237, 207, 59));
+        Kogse:DrawTextNoRelative("7 - Spawn COLOR block", sw_view.absolute_position.x+5, sw_view.absolute_position.y+125, 14, Color.RGB(174, 140, 219));
+        Kogse:DrawTextNoRelative("8 - Spawn VECTOR2 block", sw_view.absolute_position.x+5, sw_view.absolute_position.y+145, 14, Color.RGB(41, 141, 229));
+        Kogse:DrawTextNoRelative("9 - Spawn RECTANGLE block", sw_view.absolute_position.x+5, sw_view.absolute_position.y+165, 14, Color.RGB(81, 232, 161));
+        Kogse:DrawTextNoRelative("0 - Spawn STRING block", sw_view.absolute_position.x+5, sw_view.absolute_position.y+185, 14, Color.RGB(252, 233, 90));
+        Kogse:DrawTextNoRelative("Q - Deselect block", sw_view.absolute_position.x+5, sw_view.absolute_position.y+205, 14, rl.WHITE);
       elseif (sw_name == "toolbar") then
-        ---# TOOLBAR #---
+        --# TOOLBAR #---
         -- Draw background
         sw_view:DrawRectangle(0, 0, sw_view.w, sw_view.h, Color.RGB(14, 15, 17));
         -- Draw toolbar's buttons
@@ -919,13 +1285,25 @@ local function Update()
             for i = 1, #KogInterpreter.Result do
               KogInterpreter.Result[i] = nil;
             end
-            for id_block, __ in pairs(BLOCK.all) do
-              if (__.type == BLOCK.types.DISPLAY) then
+            local err_cnt = 0;
+            for id_block, blk in pairs(BLOCK.all) do
+              if (blk.type == BLOCK.types.DISPLAY) then
                 local interpreted_result = KogInterpreter.ExecuteBlock(id_block);
                 if (interpreted_result) then
-                  table.insert(KogInterpreter.Result, {interpreted_result.__to_display, interpreted_result.__des_x, interpreted_result.__des_y});
-                -- else
-                --   print("FAILURE!!!!");
+                  table.insert(KogInterpreter.Result, {"text", interpreted_result});
+                else
+                  table.insert(KogInterpreter.Result, {"text", {"ERROR: Unable to get DISPLAY content", {0, err_cnt*50}, {255, 0, 0}}})
+                  err_cnt = err_cnt + 1;
+                  -- print("FAILURE - DISPLAY");
+                end
+              elseif (blk.type == BLOCK.types.RECTANGLE) then
+                local interpreted_result = KogInterpreter.ExecuteBlock(id_block);
+                if (interpreted_result) then
+                  table.insert(KogInterpreter.Result, {"rect", interpreted_result});
+                else
+                  table.insert(KogInterpreter.Result, {"text", {"ERROR: Unable to get RECTANGLE content", {0, err_cnt*50}, {255, 0, 0}}})
+                  err_cnt = err_cnt + 1;
+                  -- print("FAILURE - RECTANGLE");
                 end
               end
             end
@@ -948,9 +1326,14 @@ local function Update()
     Kogse:DrawRectangleNoRelative(sw_view.absolute_position.x, sw_view.absolute_position.y, sw_view.w, sw_view.h, rl.WHITE);
     Kogse:DrawTextNoRelative("Press Q to quit", 5, 5, 10, rl.BLACK);
     for _, to_cook in ipairs(KogInterpreter.Result) do
-      local a, b, c = unpack(to_cook);
-      -- print(a, b, c);
-      sw_view:DrawText(tostring(a), b, c, 30, rl.BLACK);
+      local a, b, c = unpack(to_cook[2]);
+      -- print(to_cook[1]);
+      if (to_cook[1] == "text") then
+        -- print(a, b, c);
+        sw_view:DrawText(tostring(a), b[1], b[2], 30, Color.RGB(c[1], c[2], c[3]));
+      else
+        sw_view:DrawRectangle(b[1], b[2], a[1], a[2], Color.RGB(c[1], c[2], c[3]));
+      end
     end
   end
   if (display_fps) then
