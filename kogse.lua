@@ -248,7 +248,7 @@ end
 --// END OF KOGSE MODULE //--
 
 
-Kogse:Init(1240, 700, "Kogse v0.2a", 240);
+Kogse:Init(1240, 700, "Kogse v0.2.1a", 240);
 -- Kogse's components
 local camera = Kogse.camera;
 local mouse = Kogse.mouse;
