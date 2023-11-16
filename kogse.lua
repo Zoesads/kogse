@@ -436,13 +436,16 @@ KogInterpreter.Executor = {
       end
       if (port_name ~= "O") then
         local child_res = KogInterpreter.ExecuteBlock(blk[port_name].connected_to);
-        if (type(child_res) ~= "number") then
-          return nil;
-        end
         table.insert(res, child_res);
       end
     end
-    return res[1] + res[2];
+    if (type(res[1]) ~= type(res[2])) then
+      return nil;
+    elseif (type(res[1]) == "number") then
+      return res[1] + res[2];
+    elseif (type(res[1]) == "table" and #res[1] == 2 and #res[2] == 2) then
+      return {res[1][1] + res[2][1], res[1][2] + res[2][2]};
+    end
   end;
   [BLOCK.types.SUB] = function(blk)
     local res = {};
@@ -468,13 +471,22 @@ KogInterpreter.Executor = {
       end
       if (port_name ~= "O") then
         local child_res = KogInterpreter.ExecuteBlock(blk[port_name].connected_to);
-        if (type(child_res) ~= "number") then
-          return nil;
-        end
         table.insert(res, child_res);
       end
     end
-    return res[2] == 0 and nil or res[1] * res[2];
+    if (type(res[1]) ~= type(res[2])) then
+      if (type(res[1]) == "table" and type(res[2]) == "number" and #res[1] == 2) then
+        return {res[1][1]*res[2], res[1][2]*res[2]};
+      elseif (type(res[2]) == "table" and #res[2] == 2 and type(res[1]) == "number") then
+        return {res[2][1]*res[1], res[2][2]*res[1]};
+      end
+      return nil;
+    else
+      if (type(res[1]) == "number") then
+        return res[1]*res[2];
+      end
+      return nil;
+    end
   end;
   [BLOCK.types.DIV] = function(blk)
     local res = {};
@@ -500,8 +512,8 @@ KogInterpreter.Executor = {
       end
       if (port_name ~= "O") then
         local child_res = KogInterpreter.ExecuteBlock(blk[port_name].connected_to);
-        if ((port_name == "I1" and type(child_res) == "string") or (type(child_res) == "table" and ((port_name == "I2" and #child_res == 2) or (port_name == "I3" and #child_res == 3)))) then
-          table.insert(res, child_res or 0);
+        if ((port_name == "I1" and child_res ~= nil) or (type(child_res) == "table" and ((port_name == "I2" and #child_res == 2) or (port_name == "I3" and #child_res == 3)))) then
+          table.insert(res, child_res);
         else
           return nil;
         end
