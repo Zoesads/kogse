@@ -200,6 +200,7 @@ KogseExec.Executor = {
         color = args[3].type == Datatypes.Color and args[3].value or Color.RGB(0, 0, 0);
       };
     });
+    return KEXC_RESULT(Datatypes.any, 0);
   end;
   [GBlock.types.RECTANGLE] = function(box_which_block_is_in, block)
     local args = {};
@@ -224,6 +225,7 @@ KogseExec.Executor = {
         rotation = args[4].type == Datatypes.Number and args[4].value or 0;
       };
     });
+    return KEXC_RESULT(Datatypes.any, 0);
   end;
   [GBlock.types.TRIANGLE] = function(box_which_block_is_in, block)
     local args = {};
@@ -261,6 +263,7 @@ KogseExec.Executor = {
         color = args[4].type == Datatypes.Color and args[4].value or Color.RGB(0, 0, 0);
       };
     });
+    return KEXC_RESULT(Datatypes.any, 0);
   end;
   [GBlock.types.CIRCLE] = function(box_which_block_is_in, block)
     local args = {};
@@ -284,6 +287,7 @@ KogseExec.Executor = {
         color = args[3].type == Datatypes.Color and args[3].value or Color.RGB(0, 0, 0);
       };
     });
+    return KEXC_RESULT(Datatypes.any, 0);
   end;
 };
 ---@param box_which_block_is_in table

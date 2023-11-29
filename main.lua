@@ -6,7 +6,7 @@ local GUI = require("gui");
 local GBlock = require("gblock");
 local Executor = require("executor");
 
-GUI.Init(1240, 700, "Kogse v0.2.2a", 240);
+GUI.Init(1240, 700, "Kogse v0.2.3a", 240);
 -- Kogse GUI's components
 local camera = GUI.camera;
 local mouse = GUI.mouse;
@@ -29,6 +29,7 @@ local typingBuffer = {
 local right_click_menu = {activated = false; where = rl.new("Vector2", mouse.x, mouse.y)};
 ---@type Font
 local FONT;
+local onload_existed = -1;
 
 local child_windows = {
   ["editor"] = GUI.Viewport(0, 30, window.w, window.h-30);
@@ -73,6 +74,7 @@ local translate_type_to_title = {
   [GBlock.types["GET.STR"]] = "STRING";
   [GBlock.types.CIRCLE] = "CIRCLE";
   [GBlock.types.TRIANGLE] = "TRIANGLE";
+  [GBlock.types["EVENT.ONLOAD"]] = "ONLOAD";
 };
 local translate_pid_to_name = {
   I1 = {
@@ -126,7 +128,7 @@ end
 ---@param port_id string
 local function GetBlockPortName(block, port_id)
   assert(GBlock.block_graphical_data[block.type], "can't get port information from unknown block");
-  return translate_pid_to_name[port_id][block.type] or "";
+  return (translate_pid_to_name[port_id] and translate_pid_to_name[port_id][block.type]) or "";
 end
 ---@param block BLOCK_t
 local function GetBlockColor(block)
@@ -169,6 +171,12 @@ local function GetBlockColor(block)
   elseif (block.type == GBlock.types.TRIANGLE) then
     return {
       title = Color.RGBA(126, 153, 134, 220);
+      background = Color.RGBA(15, 15, 15, 175);
+      close_btt = rl.RED;
+    }
+  elseif (block.type == GBlock.types["EVENT.ONLOAD"]) then
+    return {
+      title = Color.RGBA(252, 244, 100, 220);
       background = Color.RGBA(15, 15, 15, 175);
       close_btt = rl.RED;
     }
@@ -296,6 +304,9 @@ local function BlocksInteraction()
             if (rl.IsMouseButtonPressed(rl.MOUSE_BUTTON_LEFT)) then
               if (part == "close_btt") then
                 -- Delete the block
+                if (block.type == GBlock.types["EVENT.ONLOAD"]) then
+                  onload_existed = -1;
+                end
                 global_box.DeleteBlock(id_block);
                 if (selecting_block.id == id_block) then
                   selecting_block.id = -1;
@@ -411,7 +422,8 @@ local function DrawEditor()
   GUI.DrawTextEx(FONT, "0 - Spawn STRING block", cwin.absolute_position.x+5, cwin.absolute_position.y+185, 20, Color.RGB(252, 233, 90));
   GUI.DrawTextEx(FONT, "A - Spawn CIRCLE block", cwin.absolute_position.x+5, cwin.absolute_position.y+205, 20, Color.RGB(117, 168, 216));
   GUI.DrawTextEx(FONT, "B - Spawn TRIANGLE block", cwin.absolute_position.x+5, cwin.absolute_position.y+225, 20, Color.RGB(117, 168, 216));
-  GUI.DrawTextEx(FONT, "Q - Deselect block", cwin.absolute_position.x+5, cwin.absolute_position.y+245, 20, rl.WHITE);
+  GUI.DrawTextEx(FONT, "C - Spawn ONLOAD block", cwin.absolute_position.x+5, cwin.absolute_position.y+245, 20, Color.RGB(252, 244, 100));
+  GUI.DrawTextEx(FONT, "Q - Deselect block", cwin.absolute_position.x+5, cwin.absolute_position.y+265, 20, rl.WHITE);
 end
 
 local function DrawRunner()
@@ -457,9 +469,25 @@ local function DrawToolbar()
     for i = 1, #Executor.ExecutionList do
       Executor.ExecutionList[i] = nil;
     end
-    for _, block in pairs(global_box.all) do
-      if (block.type == GBlock.types.DISPLAY or block.type == GBlock.types.RECTANGLE or block.type == GBlock.types.CIRCLE or block.type == GBlock.types.TRIANGLE) then
+    -- Execute then run our program!!
+    if (onload_existed > 0) then
+      local root = onload_existed;
+      while true do
+        local block = global_box.all[root];
+        if (block.O and global_box.all[block.O.connected_to]) then
+          root = block.O.connected_to;
+          block = global_box.all[root];
+        else
+          break;
+        end
+        if (block.type ~= GBlock.types.DISPLAY and
+           block.type ~= GBlock.types.RECTANGLE and
+           block.type ~= GBlock.types.CIRCLE and
+           block.type ~= GBlock.types.TRIANGLE) then
+          break;
+        end
         Executor.ExecuteBlock(global_box.all, block);
+        print("[INFO]: Executed: ", translate_type_to_title[block.type] or "[UNIMPLEMENTED TITLE: " .. tostring(block.type) .. "]");
       end
     end
   end
@@ -622,6 +650,8 @@ local function Update()
       SpawnNewBlock(GBlock.types.CIRCLE);
     elseif (rl.IsKeyPressed(rl.KEY_B)) then
       SpawnNewBlock(GBlock.types.TRIANGLE);
+    elseif (rl.IsKeyPressed(rl.KEY_C) and onload_existed == -1) then
+      onload_existed = SpawnNewBlock(GBlock.types["EVENT.ONLOAD"]);
     end
   end
   if (current_scene == allScenes.default) then

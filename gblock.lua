@@ -17,6 +17,7 @@ KogseGraphicalBlock.types = {
   ["RECTANGLE"] = 11;
   ["CIRCLE"] = 12;
   ["TRIANGLE"] = 13;
+  ["EVENT.ONLOAD"] = 14;
 };
 ---@type table<number, string[]>
 KogseGraphicalBlock.available_ports = {
@@ -26,14 +27,23 @@ KogseGraphicalBlock.available_ports = {
   [KogseGraphicalBlock.types.SUB] = {"I1", "I2", "O"};
   [KogseGraphicalBlock.types.MUL] = {"I1", "I2", "O"};
   [KogseGraphicalBlock.types.DIV] = {"I1", "I2", "O"};
-  [KogseGraphicalBlock.types.DISPLAY] = {"I1", "I2", "I3"};
+  [KogseGraphicalBlock.types.DISPLAY] = {"I1", "I2", "I3", "I4", "O"};
   [KogseGraphicalBlock.types.VECTOR2] = {"I1", "I2", "O"};
   [KogseGraphicalBlock.types.COLOR] = {"I1", "I2", "I3", "O"};
-  [KogseGraphicalBlock.types.RECTANGLE] = {"I1", "I2", "I3", "I4"};
-  [KogseGraphicalBlock.types.CIRCLE] = {"I1", "I2", "I3"};
-  [KogseGraphicalBlock.types.TRIANGLE] = {"I1", "I2", "I3", "I4"};
+  [KogseGraphicalBlock.types.RECTANGLE] = {"I1", "I2", "I3", "I4", "I5", "O"};
+  [KogseGraphicalBlock.types.CIRCLE] = {"I1", "I2", "I3", "I4", "O"};
+  [KogseGraphicalBlock.types.TRIANGLE] = {"I1", "I2", "I3", "I4", "I5", "O"};
+  [KogseGraphicalBlock.types["EVENT.ONLOAD"]] = {"O"};
 };
 KogseGraphicalBlock.block_graphical_data = {
+  [KogseGraphicalBlock.types["EVENT.ONLOAD"]] = {
+    title = {0, 0, 70, 15};
+    close_btt = {60, 0, 15, 15};
+    background = {0, 15, 70, 35};
+    ports = {
+      O = {55, 25, 5}
+    }
+  };
   [KogseGraphicalBlock.types["GET.STR"]] = {
     title = {0, 0, 100, 15};
     close_btt = {90, 0, 15, 15};
@@ -105,43 +115,51 @@ KogseGraphicalBlock.block_graphical_data = {
   [KogseGraphicalBlock.types.DISPLAY] = {
     title = {0, 0, 80, 15};
     close_btt = {70, 0, 15, 15};
-    background = {0, 15, 80, 65};
+    background = {0, 15, 80, 85};
     ports = {
       I1 = {2, 20, 5};
       I2 = {2, 40, 5};
       I3 = {2, 60, 5};
+      I4 = {2, 80, 5};
+      O = {70, 50, 5};
     }
   };
   [KogseGraphicalBlock.types.RECTANGLE] = {
     title = {0, 0, 80, 15};
     close_btt = {70, 0, 15, 15};
-    background = {0, 15, 80, 85};
+    background = {0, 15, 80, 105};
     ports = {
       I1 = {2, 20, 5};
       I2 = {2, 40, 5};
       I3 = {2, 60, 5};
       I4 = {2, 80, 5};
+      I5 = {2, 100, 5};
+      O = {70, 60, 5};
     }
   };
   [KogseGraphicalBlock.types.CIRCLE] = {
     title = {0, 0, 80, 15};
     close_btt = {70, 0, 15, 15};
-    background = {0, 15, 80, 65};
-    ports = {
-      I1 = {2, 20, 5};
-      I2 = {2, 40, 5};
-      I3 = {2, 60, 5};
-    }
-  };
-  [KogseGraphicalBlock.types.TRIANGLE] = {
-    title = {0, 0, 80, 15};
-    close_btt = {70, 0, 15, 15};
     background = {0, 15, 80, 85};
     ports = {
       I1 = {2, 20, 5};
       I2 = {2, 40, 5};
       I3 = {2, 60, 5};
       I4 = {2, 80, 5};
+      O = {70, 50, 5};
+    }
+  };
+  [KogseGraphicalBlock.types.TRIANGLE] = {
+    title = {0, 0, 80, 15};
+    close_btt = {70, 0, 15, 15};
+    background = {0, 15, 80, 105};
+    ports = {
+      I1 = {2, 20, 5};
+      I2 = {2, 40, 5};
+      I3 = {2, 60, 5};
+      I4 = {2, 80, 5};
+      I5 = {2, 100, 5};
+      O = {70, 60, 5};
     }
   };
   [KogseGraphicalBlock.types.COLOR] = {
