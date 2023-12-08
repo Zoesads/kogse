@@ -91,7 +91,7 @@ end
 ---@param thickness number
 ---@param color Color
 function GUI.DrawBezierCurve(startp, endp, thickness, color)
-  rl.DrawLineBezier({startp.x*GUI.scale_ratio.w or 0, startp.y*GUI.scale_ratio.h or 0}, {endp.x*GUI.scale_ratio.w or 0, endp.y*GUI.scale_ratio.h or 0}, thickness*math.max(GUI.scale_ratio.w, GUI.scale_ratio.h) or 1, color or rl.PURPLE);
+  rl.DrawLineBezier({(startp.x*GUI.scale_ratio.w) or 0, (startp.y*GUI.scale_ratio.h) or 0}, {(endp.x*GUI.scale_ratio.w) or 0, (endp.y*GUI.scale_ratio.h) or 0}, (thickness*math.max(GUI.scale_ratio.w, GUI.scale_ratio.h)) or 1, color or rl.PURPLE);
 end
 
 ---@param A Vector2
@@ -128,70 +128,6 @@ end
 ---@return boolean
 function GUI.IsMouseHover(x, y, w, h, mouse_x, mouse_y)
   return GUI.AABB(x*GUI.scale_ratio.w, y*GUI.scale_ratio.h, w*GUI.scale_ratio.w, h*GUI.scale_ratio.h, mouse_x, mouse_y, 5, 5);
-end
-
----@param x number
----@param y number
----@param w number
----@param h number
----@param style {color: {clicked: Color | nil, hovered: Color | nil, idle: Color | nil}, roundness: number| nil}
----@param event_fn {on_click: fun()}
-function GUI.Button(x, y, w, h, style, event_fn)
-  local is_hovered = GUI.IsMouseHover(x, y, w, h, GUI.mouse.x, GUI.mouse.y);
-  local is_clicked = is_hovered and rl.IsMouseButtonPressed(rl.MOUSE_BUTTON_LEFT);
-  local color_chosen = style.color.idle;
-  if (is_clicked) then
-    color_chosen = style.color.clicked or style.color.idle;
-  elseif (is_hovered) then
-    color_chosen = style.color.hovered or style.color.idle;
-  else
-    color_chosen = style.color.idle;
-  end
-  color_chosen = color_chosen or rl.PURPLE;
-  GUI.DrawRoundedBackground(x, y, w, h, style.roundness or 0, color_chosen);
-  if (is_clicked and type(event_fn)=="table" and type(event_fn.on_click) == "function") then
-    event_fn.on_click();
-  end
-end
-
----@param x number
----@param y number
----@param w number
----@param h number
----@param style {color: {clicked: Color | nil, hovered: Color | nil, idle: Color | nil}, roundness: number| nil, direction: string}
----@param buttons table
----@param event_fn {on_hover: fun()}
-function GUI.ExpandMenu(x, y, w, h, style, buttons, event_fn)
-  local is_hovered = GUI.IsMouseHover(x, y, w, h, GUI.mouse.x, GUI.mouse.y);
-  local color_chosen = style.color.idle;
-  if (is_hovered) then
-    color_chosen = style.color.hovered or style.color.idle;
-  else
-    color_chosen = style.color.idle;
-  end
-  color_chosen = color_chosen or rl.PURPLE;
-  if (is_hovered) then
-
-    if (type(event_fn) == "table" and type(event_fn.on_hover) == "function") then
-      event_fn.on_hover();
-    end
-  end
-end
-
----@param x number
----@param y number
----@param w number
----@param h number
----@param style {color: {hovered: Color | nil, idle: Color | nil}, roundness: number| nil}
-function GUI.Menu(title, x, y, w, h, style, buttons)
-  local is_hovered = GUI.IsMouseHover(x, y, w, h, GUI.mouse.x, GUI.mouse.y);
-  local color_chosen = style.color.idle;
-  if (is_hovered) then
-    color_chosen = style.color.hovered or style.color.idle;
-  else
-    color_chosen = style.color.idle;
-  end
-  color_chosen = color_chosen or rl.PURPLE;
 end
 
 ---@param update_func function

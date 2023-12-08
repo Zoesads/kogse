@@ -5,8 +5,9 @@ local Color = require("color");
 local GUI = require("gui");
 local GBlock = require("gblock");
 local Executor = require("executor");
+local Buffer = require("buffer");
 
-GUI.Init(1240, 700, "Kogse v0.2.3a", 240);
+GUI.Init(1240, 700, "Kogse v0.2.3.1a", 240);
 -- Kogse GUI's components
 local camera = GUI.camera;
 local mouse = GUI.mouse;
@@ -22,14 +23,9 @@ local selecting_block = {what="", id=-1};
 ---@type string[]
 local rendering_order = {"title", "background", "close_btt", "input"};
 ---@type {value: string, size: integer}
-local typingBuffer = {
-  value = "";
-  size = 0;
-};
 local right_click_menu = {activated = false; where = rl.new("Vector2", mouse.x, mouse.y)};
 ---@type Font
 local FONT;
-local onload_existed = -1;
 
 local child_windows = {
   ["editor"] = GUI.Viewport(0, 30, window.w, window.h-30);
@@ -44,23 +40,6 @@ local allScenes = {
 };
 local current_scene = allScenes["default"];
 local display_fps = false;
-local translate_keys = {
-  {rl.KEY_ONE, "1"},
-  {rl.KEY_TWO, "2"},
-  {rl.KEY_THREE, "3"},
-  {rl.KEY_FOUR, "4"},
-  {rl.KEY_FIVE, "5"},
-  {rl.KEY_SIX, "6"},
-  {rl.KEY_SEVEN, "7"},
-  {rl.KEY_EIGHT, "8"},
-  {rl.KEY_NINE, "9"},
-  {rl.KEY_ZERO, "0"},
-  {rl.KEY_MINUS, "-"},
-  {rl.KEY_SPACE, " "};
-  {rl.KEY_COMMA, ","};
-  {rl.KEY_SEMICOLON, ";"};
-  {rl.KEY_PERIOD, "."};
-};
 local translate_type_to_title = {
   [GBlock.types.ADD] = "A+B";
   [GBlock.types.SUB] = "A-B";
@@ -75,6 +54,11 @@ local translate_type_to_title = {
   [GBlock.types.CIRCLE] = "CIRCLE";
   [GBlock.types.TRIANGLE] = "TRIANGLE";
   [GBlock.types["EVENT.ONLOAD"]] = "ONLOAD";
+  [GBlock.types["EVENT.ONCLICK"]] = "ONCLICK";
+  [GBlock.types["EVENT.ONUPDATE"]] = "ONUPDATE";
+  [GBlock.types.DEFINE] = "DEFINE";
+  [GBlock.types["GET.DEFINITION"]] = "DEFINITION";
+  [GBlock.types.STAR] = "STAR";
 };
 local translate_pid_to_name = {
   I1 = {
@@ -88,6 +72,8 @@ local translate_pid_to_name = {
     [GBlock.types.RECTANGLE] = "SIZE";
     [GBlock.types.CIRCLE] = "RADIUS";
     [GBlock.types.TRIANGLE] = "A";
+    [GBlock.types.DEFINE] = "NAME";
+    [GBlock.types.STAR] = "SIZE";
   };
   I2 = {
     [GBlock.types.ADD] = "B";
@@ -100,6 +86,8 @@ local translate_pid_to_name = {
     [GBlock.types.RECTANGLE] = "POSITION";
     [GBlock.types.CIRCLE] = "POSITION";
     [GBlock.types.TRIANGLE] = "B";
+    [GBlock.types.DEFINE] = "VALUE";
+    [GBlock.types.STAR] = "POSITION";
   };
   I3 = {
     [GBlock.types.COLOR] = "B";
@@ -107,10 +95,12 @@ local translate_pid_to_name = {
     [GBlock.types.RECTANGLE] = "COLOR";
     [GBlock.types.CIRCLE] = "COLOR";
     [GBlock.types.TRIANGLE] = "C";
+    [GBlock.types.STAR] = "COLOR";
   };
   I4 = {
     [GBlock.types.RECTANGLE] = "ROTATION";
     [GBlock.types.TRIANGLE] = "COLOR";
+    [GBlock.types.STAR] = "ROTATION";
   };
   O = {
     [GBlock.types.ADD] = "=";
@@ -180,6 +170,18 @@ local function GetBlockColor(block)
       background = Color.RGBA(15, 15, 15, 175);
       close_btt = rl.RED;
     }
+  elseif (block.type == GBlock.types["EVENT.ONCLICK"]) then
+    return {
+      title = Color.RGBA(252, 244, 100, 220);
+      background = Color.RGBA(15, 15, 15, 175);
+      close_btt = rl.RED;
+    }
+  elseif (block.type == GBlock.types["EVENT.ONUPDATE"]) then
+    return {
+      title = Color.RGBA(252, 244, 100, 220);
+      background = Color.RGBA(15, 15, 15, 175);
+      close_btt = rl.RED;
+    }
   elseif (block.type == GBlock.types["GET.INT"]) then
     return {
       title = Color.RGBA(252, 162, 45, 220);
@@ -190,6 +192,27 @@ local function GetBlockColor(block)
   elseif (block.type == GBlock.types["GET.STR"]) then
     return {
       title = Color.RGBA(252, 233, 90, 220);
+      background = Color.RGBA(15, 15, 15, 175);
+      close_btt = rl.RED;
+      input = Color.RGB(25, 25, 25);
+    }
+  elseif (block.type == GBlock.types.DEFINE) then
+    return {
+      title = Color.RGBA(119, 168, 131, 220);
+      background = Color.RGBA(15, 15, 15, 175);
+      close_btt = rl.RED;
+      input = Color.RGB(25, 25, 25);
+    }
+  elseif (block.type == GBlock.types["GET.DEFINITION"]) then
+    return {
+      title = Color.RGBA(119, 168, 131, 220);
+      background = Color.RGBA(15, 15, 15, 175);
+      close_btt = rl.RED;
+      input = Color.RGB(25, 25, 25);
+    }
+  elseif (block.type == GBlock.types.STAR) then
+    return {
+      title = Color.RGBA(119, 168, 131, 220);
       background = Color.RGBA(15, 15, 15, 175);
       close_btt = rl.RED;
       input = Color.RGB(25, 25, 25);
@@ -219,22 +242,26 @@ local function DrawBlock(id_block)
       editor:DrawBackground(block.x-2, block.y-2, oc_width-1, oc_height+4, Color.RGBA(44, 146, 214, 150));
       rl.EndBlendMode();
     end
-    local Colors = GetBlockColor(block);
+    local BlockComponentsColor = GetBlockColor(block);
     local Title = GetBlockTitle(block);
     for _, component_name in ipairs(rendering_order) do
       local gdata = GBlock.block_graphical_data[block.type][component_name];
       if (gdata) then
         if (component_name == "input") then
-          editor:DrawRoundedBackground(block.x+gdata[1], block.y+gdata[2], gdata[3], gdata[4], 0.25, Colors[component_name]);
+          editor:DrawRoundedBackground(block.x+gdata[1], block.y+gdata[2], gdata[3], gdata[4], 0.25, BlockComponentsColor[component_name]);
         elseif (component_name ~= "close_btt") then
-          editor:DrawBackground(block.x+gdata[1], block.y+gdata[2], gdata[3], gdata[4], Colors[component_name]);
+          editor:DrawBackground(block.x+gdata[1], block.y+gdata[2], gdata[3], gdata[4], BlockComponentsColor[component_name]);
         end
         if (component_name == "title") then
           editor:DrawTextEx(FONT, Title, block.x+gdata[1]+2, block.y+gdata[2], 15, rl.BLACK);
         elseif (component_name == "close_btt") then
           editor:DrawTextEx(FONT, "x", block.x+gdata[1], block.y+gdata[2], 14, rl.RED);
         elseif (component_name == "input") then
-          editor:DrawTextEx(FONT, (selecting_block.id == id_block and selecting_block.what:sub(1,6) == "typing") and typingBuffer.value or (block.Value and (#block.Value > 10 and (block.Value:sub(1,10) .. "...") or block.Value)), block.x+gdata[1]+2, block.y+gdata[2]+2, 12, Color.RGB(247, 185, 42))
+          if (selecting_block.id == id_block and selecting_block.what:find("typing") ~= nil) then
+            editor:DrawTextEx(FONT, Buffer.size > 10 and "<" .. Buffer.buf:sub(Buffer.size-9, Buffer.size) or Buffer.buf, block.x+gdata[1]+2, block.y+gdata[2]+2, 12, Color.RGB(247, 185, 42));
+          elseif (block.Value) then
+            editor:DrawTextEx(FONT, #block.Value > 10 and block.Value:sub(1,7) .. "..." or block.Value, block.x+gdata[1]+2, block.y+gdata[2]+2, 12, Color.RGB(247, 185, 42));
+          end
         end
       end
     end
@@ -304,9 +331,6 @@ local function BlocksInteraction()
             if (rl.IsMouseButtonPressed(rl.MOUSE_BUTTON_LEFT)) then
               if (part == "close_btt") then
                 -- Delete the block
-                if (block.type == GBlock.types["EVENT.ONLOAD"]) then
-                  onload_existed = -1;
-                end
                 global_box.DeleteBlock(id_block);
                 if (selecting_block.id == id_block) then
                   selecting_block.id = -1;
@@ -315,10 +339,15 @@ local function BlocksInteraction()
                 break;
               elseif (part == "input") then
                 -- Update Block's Value
-                selecting_block.what = block.type == GBlock.types["GET.INT"] and "typing-number" or "typing-string";
+                local type_of_input = block.type == GBlock.types["GET.INT"] and "typing-number" or "typing-string";
+                selecting_block.what = type_of_input;
                 selecting_block.id = id_block;
-                typingBuffer.value = tostring(block.Value);
-                typingBuffer.size = #typingBuffer.value;
+                if (type_of_input == "typing-number") then
+                  Buffer.SetMode("number", 10);
+                else
+                  Buffer.SetMode("string", 1024);
+                end
+                Buffer.Fill(block.Value);
               end
             elseif (rl.IsMouseButtonDown(rl.MOUSE_BUTTON_LEFT) and selecting_block.id == -1 and part == "title" and selecting_block.what ~= "dragging") then
               selecting_block.what = "dragging";
@@ -423,15 +452,17 @@ local function DrawEditor()
   GUI.DrawTextEx(FONT, "A - Spawn CIRCLE block", cwin.absolute_position.x+5, cwin.absolute_position.y+205, 20, Color.RGB(117, 168, 216));
   GUI.DrawTextEx(FONT, "B - Spawn TRIANGLE block", cwin.absolute_position.x+5, cwin.absolute_position.y+225, 20, Color.RGB(117, 168, 216));
   GUI.DrawTextEx(FONT, "C - Spawn ONLOAD block", cwin.absolute_position.x+5, cwin.absolute_position.y+245, 20, Color.RGB(252, 244, 100));
-  GUI.DrawTextEx(FONT, "Q - Deselect block", cwin.absolute_position.x+5, cwin.absolute_position.y+265, 20, rl.WHITE);
+  GUI.DrawTextEx(FONT, "D - Spawn ONUPDATE block", cwin.absolute_position.x+5, cwin.absolute_position.y+265, 20, Color.RGB(252, 244, 100));
+  GUI.DrawTextEx(FONT, "E - Spawn ONCLICK block", cwin.absolute_position.x+5, cwin.absolute_position.y+285, 20, Color.RGB(252, 244, 100));
+  GUI.DrawTextEx(FONT, "F - Spawn DEFINE block", cwin.absolute_position.x+5, cwin.absolute_position.y+305, 20, Color.RGB(252, 244, 100));
+  GUI.DrawTextEx(FONT, "G - Spawn GET DEFINITION block", cwin.absolute_position.x+5, cwin.absolute_position.y+325, 20, Color.RGB(252, 244, 100));
+  GUI.DrawTextEx(FONT, "H - Spawn STAR block", cwin.absolute_position.x+5, cwin.absolute_position.y+345, 20, Color.RGB(252, 244, 100));
+  GUI.DrawTextEx(FONT, "Q - Deselect block", cwin.absolute_position.x+5, cwin.absolute_position.y+365, 20, rl.WHITE);
 end
 
-local function DrawRunner()
+local function RunnerExecuteTargets(target_list)
   local cwin = child_windows.runner;
-  GUI.DrawBackground(cwin.absolute_position.x, cwin.absolute_position.y, cwin.w, cwin.h, rl.WHITE);
-  DrawGrid(cwin, Color.RGB(240, 245, 250));
-  GUI.DrawTextEx(FONT, "Press Q to return", 5, 5, 16, rl.BLACK);
-  for _, item in ipairs(Executor.ExecutionList) do
+  for _, item in ipairs(target_list) do
     if (item.what == "text") then
       cwin:DrawText(item.content, item.style.position.x, item.style.position.y, 15, item.style.color);
     elseif (item.what == "rectangle") then
@@ -450,10 +481,26 @@ local function DrawRunner()
         cwin:DrawBackground(item.style.position.x-item.style.size.x/2, item.style.position.y-item.style.size.y/2, item.style.size.x, item.style.size.y, item.style.color);
       end
     elseif (item.what == "triangle") then
-    cwin:DrawTriangle(item.vertex.a, item.vertex.b, item.vertex.c, item.style.color);
+      cwin:DrawTriangle(item.vertex.a, item.vertex.b, item.vertex.c, item.style.color);
+    elseif (item.what == "star") then
+      for i = 1, #item.polygon do
+        cwin:DrawTriangle(item.polygon[i][1], item.polygon[i][2], item.polygon[i][3], item.style.color);
+      end
     elseif (item.what == "circle") then
       cwin:DrawCircle(item.style.position.x-item.style.radius, item.style.position.y-item.style.radius, item.style.radius, item.style.color);
     end
+  end
+end
+
+local function DrawRunner()
+  local cwin = child_windows.runner;
+  GUI.DrawBackground(cwin.absolute_position.x, cwin.absolute_position.y, cwin.w, cwin.h, rl.WHITE);
+  DrawGrid(cwin, Color.RGB(240, 245, 250));
+  GUI.DrawTextEx(FONT, "Press Q to return", 5, 5, 16, rl.BLACK);
+  RunnerExecuteTargets(Executor.ExecutionList.init);
+  RunnerExecuteTargets(Executor.ExecutionList.update);
+  if (rl.IsMouseButtonDown(rl.MOUSE_BUTTON_LEFT)) then
+    RunnerExecuteTargets(Executor.ExecutionList.on_click);
   end
 end
 
@@ -466,28 +513,33 @@ local function DrawToolbar()
     child_windows.runner.x = 0;
     child_windows.runner.y = 0;
     child_windows.runner.zoom = 1;
-    for i = 1, #Executor.ExecutionList do
-      Executor.ExecutionList[i] = nil;
-    end
+    Executor.Clear();
     -- Execute then run our program!!
-    if (onload_existed > 0) then
-      local root = onload_existed;
-      while true do
-        local block = global_box.all[root];
-        if (block.O and global_box.all[block.O.connected_to]) then
-          root = block.O.connected_to;
-          block = global_box.all[root];
-        else
-          break;
+    local events_to_execute = {"onload", "onupdate", "onclick"};
+    for _, event_name in ipairs(events_to_execute) do
+      Executor.SetExecutionTarget(event_name);
+      local root = global_box.GetEventHandler(event_name);
+      if (root > -1) then
+        while true do
+          local block = global_box.all[root];
+          if (block.O and global_box.all[block.O.connected_to]) then
+            root = block.O.connected_to;
+            block = global_box.all[root];
+          else
+            break;
+          end
+          if (block.type ~= GBlock.types.DISPLAY and
+             block.type ~= GBlock.types.RECTANGLE and
+             block.type ~= GBlock.types.CIRCLE and
+             block.type ~= GBlock.types.TRIANGLE and
+             block.type ~= GBlock.types.DEFINE and
+             block.type ~= GBlock.types.STAR
+             ) then
+            break;
+          end
+          Executor.ExecuteBlock(global_box.all, block);
+          print("[INFO]: Executed: ", translate_type_to_title[block.type] or ("[UNIMPLEMENTED TITLE: " .. tostring(block.type) .. "]"));
         end
-        if (block.type ~= GBlock.types.DISPLAY and
-           block.type ~= GBlock.types.RECTANGLE and
-           block.type ~= GBlock.types.CIRCLE and
-           block.type ~= GBlock.types.TRIANGLE) then
-          break;
-        end
-        Executor.ExecuteBlock(global_box.all, block);
-        print("[INFO]: Executed: ", translate_type_to_title[block.type] or "[UNIMPLEMENTED TITLE: " .. tostring(block.type) .. "]");
       end
     end
   end
@@ -496,6 +548,12 @@ local function DrawToolbar()
 end
 
 local function MouseUpdate()
+  if (rl.IsMouseButtonReleased(rl.MOUSE_BUTTON_LEFT)) then
+    if (selecting_block.what == "dragging") then
+      selecting_block.id = -1;
+      selecting_block.what = "";
+    end
+  end
   local mouse_scroll_dt = rl.GetMouseWheelMove();
   local mouse_dt = rl.new("Vector2", mouse.x-prev_mouse.x, mouse.y-prev_mouse.y);
   for cwin_name, cwin in pairs(child_windows) do
@@ -522,85 +580,6 @@ local function MouseUpdate()
   end
   prev_mouse.x = mouse.x;
   prev_mouse.y = mouse.y;
-end
-
-local function BufferUpdate()
-  if (typingBuffer.size > 0 and selecting_block.what:find("typing") == nil) then
-    typingBuffer.value = "";
-    typingBuffer.size = 0;
-  end
-  if (selecting_block.what == "typing-number") then
-    local key_and_num = {
-      {rl.KEY_ONE, "1"},
-      {rl.KEY_TWO, "2"},
-      {rl.KEY_THREE, "3"},
-      {rl.KEY_FOUR, "4"},
-      {rl.KEY_FIVE, "5"},
-      {rl.KEY_SIX, "6"},
-      {rl.KEY_SEVEN, "7"},
-      {rl.KEY_EIGHT, "8"},
-      {rl.KEY_NINE, "9"},
-      {rl.KEY_ZERO, "0"},
-      {rl.KEY_MINUS, "-"}
-    };
-    for _, kn in ipairs(key_and_num) do
-      if (rl.IsKeyPressed(kn[1])) then
-        typingBuffer.value = typingBuffer.value:sub(1, 29) .. kn[2];
-      end
-    end
-    typingBuffer.size = #typingBuffer.value;
-    if (rl.IsKeyPressed(rl.KEY_BACKSPACE) and typingBuffer.size > 0) then
-      typingBuffer.value = typingBuffer.size == 0 and "" or typingBuffer.value:sub(1, typingBuffer.size-1);
-    end
-    if (rl.IsKeyPressed(rl.KEY_ENTER)) then
-      selecting_block.what = "";
-      local translateToNumber = tonumber(typingBuffer.value);
-      global_box.all[selecting_block.id].Value = translateToNumber and tostring(translateToNumber) or "0";
-      selecting_block.id = -1;
-      typingBuffer.size = 0;
-      typingBuffer.value = "";
-    end
-    -- print(typingBuffer.value, typingBuffer.size);
-  elseif (selecting_block.what == "typing-string") then
-    for _, kn in ipairs(translate_keys) do
-      if (rl.IsKeyPressed(kn[1])) then
-        typingBuffer.value = typingBuffer.value:sub(1,1023) .. kn[2];
-      end
-    end
-    typingBuffer.size = #typingBuffer.value;
-    local chars = "ABCDEFGHIJKLMNOPQRSTVUWXYZ";
-    local caps_down = rl.IsKeyDown(rl.KEY_CAPS_LOCK) and 1 or 0;
-    local shift_down = (rl.IsKeyDown(rl.KEY_LEFT_SHIFT) or rl.IsKeyDown(rl.KEY_RIGHT_SHIFT)) and 1 or 0;
-    local use_cap = bit.bxor(caps_down, shift_down) == 1;
-    for i = 1, #chars do
-      if (type(rl["KEY_" .. chars:sub(i,i)]) == "number" and rl.IsKeyPressed(rl["KEY_"..chars:sub(i,i)])) then
-        typingBuffer.value = typingBuffer.value:sub(1,1023) .. (use_cap and chars:sub(i,i) or string.lower(chars:sub(i,i)));
-      end
-    end
-    typingBuffer.size = #typingBuffer.value;
-    if (rl.IsKeyPressed(rl.KEY_BACKSPACE) and typingBuffer.size > 0) then
-      typingBuffer.value = typingBuffer.size == 0 and "" or typingBuffer.value:sub(1, typingBuffer.size-1);
-    end
-    if (rl.IsKeyPressed(rl.KEY_ENTER)) then
-      selecting_block.what = "";
-      global_box.all[selecting_block.id].Value = typingBuffer.value;
-      selecting_block.id = -1;
-      typingBuffer.size = 0;
-      typingBuffer.value = "";
-    end
-  end
-end
-
-local function Update()
-  rl.BeginDrawing();
-  rl.ClearBackground(rl.BLACK);
-  if (rl.IsMouseButtonReleased(rl.MOUSE_BUTTON_LEFT)) then
-    if (selecting_block.what == "dragging") then
-      selecting_block.id = -1;
-      selecting_block.what = "";
-    end
-  end
-  MouseUpdate();
   if (rl.IsMouseButtonDown(rl.MOUSE_BUTTON_LEFT) and selecting_block.what == "dragging") then
     -- Top panel of block, for dragging
     local block = global_box.all[selecting_block.id];
@@ -609,10 +588,33 @@ local function Update()
     global_box.all[selecting_block.id].x = block.x - drag_dt_x - GBlock.block_graphical_data[block.type].title[3]/2;
     global_box.all[selecting_block.id].y = block.y - drag_dt_y - GBlock.block_graphical_data[block.type].title[4]/2;
   end
+end
+
+local function BufferUpdate()
+  if (Buffer.size > 0 and selecting_block.what:find("typing") == nil) then
+    Buffer.Flush();
+    return;
+  end
+  Buffer.Update();
+  if (rl.IsKeyPressed(rl.KEY_ENTER)) then
+    local block = global_box.all[selecting_block.id];
+    if (block ~= nil and block.Value ~= nil) then
+      block.Value = Buffer.buf;
+    end
+    Buffer.Flush();
+    selecting_block.what = "";
+    selecting_block.id = -1;
+  end
+end
+
+local function Update()
+  rl.BeginDrawing();
+  rl.ClearBackground(rl.BLACK);
+  MouseUpdate();
   if (rl.IsKeyPressed(rl.KEY_F2)) then
     display_fps = not display_fps;
   end
-  if (rl.IsKeyPressed(rl.KEY_Q)) then
+  if (selecting_block.what:find("typing") == nil and rl.IsKeyPressed(rl.KEY_Q)) then
     if (current_scene == allScenes.default and selecting_block.what ~= "dragging") then
       selecting_block.id = -1;
       selecting_block.what = "";
@@ -623,7 +625,7 @@ local function Update()
     end
   end
   BufferUpdate();
-  if (current_scene == allScenes.default and selecting_block.what == "" or selecting_block.what == "dragging") then
+  if (current_scene == allScenes.default and (selecting_block.what == "" or selecting_block.what == "dragging")) then
     if (rl.IsKeyPressed(rl.KEY_ONE)) then
       SpawnNewBlock(GBlock.types.DISPLAY);
     elseif (rl.IsKeyPressed(rl.KEY_TWO)) then
@@ -650,8 +652,19 @@ local function Update()
       SpawnNewBlock(GBlock.types.CIRCLE);
     elseif (rl.IsKeyPressed(rl.KEY_B)) then
       SpawnNewBlock(GBlock.types.TRIANGLE);
-    elseif (rl.IsKeyPressed(rl.KEY_C) and onload_existed == -1) then
-      onload_existed = SpawnNewBlock(GBlock.types["EVENT.ONLOAD"]);
+    elseif (rl.IsKeyPressed(rl.KEY_C)) then
+      SpawnNewBlock(GBlock.types["EVENT.ONLOAD"]);
+    elseif (rl.IsKeyPressed(rl.KEY_D)) then
+      SpawnNewBlock(GBlock.types["EVENT.ONUPDATE"]);
+    elseif (rl.IsKeyPressed(rl.KEY_E)) then
+      SpawnNewBlock(GBlock.types["EVENT.ONCLICK"]);
+    elseif (rl.IsKeyPressed(rl.KEY_F)) then
+      SpawnNewBlock(GBlock.types.DEFINE);
+    elseif (rl.IsKeyPressed(rl.KEY_G)) then
+      local block_id = SpawnNewBlock(GBlock.types["GET.DEFINITION"]);
+      global_box.all[block_id].Value = "Kogse";
+    elseif (rl.IsKeyPressed(rl.KEY_H)) then
+      SpawnNewBlock(GBlock.types.STAR);
     end
   end
   if (current_scene == allScenes.default) then
